@@ -1,0 +1,195 @@
+# beam wire protocol (v1)
+
+Everything travels over one WebSocket per client (`/ws`).
+
+- **Control messages** are JSON text frames wrapped in a versioned envelope:
+
+  ```json
+  {"v": 1, "type": "message-type", "data": { ... }}
+  ```
+
+  Unknown versions, missing types, or malformed payloads are answered with an
+  `error` message. The read limit for a control frame is 1MB.
+
+- **File data** travels as binary frames:
+
+  ```
+  ┌────────────────────┬─────────────────────────┐
+  │ transfer UUID      │ chunk payload           │
+  │ 16 bytes, raw      │ 1 – 65536 bytes         │
+  └────────────────────┴─────────────────────────┘
+  ```
+
+  Frames outside 17..65552 bytes are rejected. Frames for unknown transfer
+  IDs are dropped silently (a credit window's worth of chunks can legally
+  trail a cancel or failure).
+
+Directions below: **C→S** = client to server, **S→C** = server to client.
+
+## Rooms & presence
+
+### `room-state` (S→C)
+
+Sent when a client connects or joins a room by code. Complete snapshot.
+
+```json
+{"v":1,"type":"room-state","data":{
+  "self":  {"id":"4c9f…","name":"Purple Falcon","emoji":"🦅","device":"laptop"},
+  "peers": [{"id":"a1b2…","name":"Amber Otter","emoji":"🦦","device":"phone"}]
+}}
+```
+
+`device` is one of `phone`, `tablet`, `laptop` (User-Agent heuristic).
+
+### `peer-joined` (S→C)
+
+A peer entered the room. Payload is a single peer object (same shape as `self` above).
+
+### `peer-left` (S→C)
+
+```json
+{"v":1,"type":"peer-left","data":{"id":"a1b2…"}}
+```
+
+### `room-create` (C→S)
+
+Request a share code for the client's **current** room (`data` empty/omitted).
+The code aliases the existing room, so a cross-network joiner sees the
+creator's LAN peers too. Repeated requests reuse a live code and refresh its TTL.
+
+### `room-created` (S→C)
+
+```json
+{"v":1,"type":"room-created","data":{"code":"XK7P","expiresIn":600}}
+```
+
+Codes are 4 chars from `23456789ABCDEFGHJKLMNPQRSTUVWXYZ` (no 0/O/1/I).
+`expiresIn` is the idle TTL in seconds; joins reset it.
+
+### `room-join` (C→S)
+
+```json
+{"v":1,"type":"room-join","data":{"code":"XK7P"}}
+```
+
+Moves the client out of its current room (its transfers fail with
+`peer-left-room`) into the code's room. Rate-limited per IP (burst 5,
+refill 1 per 2s) — exceeding it returns `error` code `rate-limited`;
+unknown/expired codes return `bad-code`.
+
+## Transfers
+
+Lifecycle: `Offered → Accepted → Active → Completed`, with `Declined`,
+`Canceled`, `Failed` as the other terminal states. Illegal transitions
+(wrong client answering, double accept, cancel after complete, …) return an
+`error` with code `bad-transfer` and never crash the server.
+
+### `transfer-offer` (C→S, then S→C)
+
+Sender → server. The **sender generates the UUID** so it can start
+streaming immediately after acceptance without an ID round trip:
+
+```json
+{"v":1,"type":"transfer-offer","data":{
+  "id":"7f3a1e90-6f0e-4d0a-9d1c-2f6b8a91c4e2",
+  "to":"a1b2…","name":"holiday.mp4","size":734003200,"mime":"video/mp4"
+}}
+```
+
+Validation: UUID well-formed and unused; `to` a distinct peer in the same
+room; `name` sanitized (path components and control chars stripped) and
+≤255 bytes; `0 < size ≤ 50GB`; at most 32 live transfers per sender.
+
+Server → receiver (note `from` added, `to` scrubbed):
+
+```json
+{"v":1,"type":"transfer-offer","data":{
+  "id":"7f3a…","from":{"id":"4c9f…","name":"Purple Falcon","emoji":"🦅","device":"laptop"},
+  "name":"holiday.mp4","size":734003200,"mime":"video/mp4"
+}}
+```
+
+Unanswered offers fail after 30s with reason `offer-timeout`.
+
+### `transfer-answer` (C→S, forwarded S→C)
+
+```json
+{"v":1,"type":"transfer-answer","data":{"id":"7f3a…","accept":true}}
+```
+
+Only the offer's target may answer. On accept the sender may start
+streaming with an initial window of **16 chunks** (see
+[streaming.md](streaming.md)).
+
+### `flow-credit` (S→C, sender only)
+
+```json
+{"v":1,"type":"flow-credit","data":{"id":"7f3a…","n":1}}
+```
+
+Grants the sender permission for `n` more in-flight chunks. Emitted only
+after the receiver's socket write for a previous chunk **completed**.
+
+### `transfer-cancel` (C→S, forwarded S→C)
+
+```json
+{"v":1,"type":"transfer-cancel","data":{"id":"7f3a…","reason":"changed my mind"}}
+```
+
+Either party, any non-terminal state. The other party receives the
+forwarded cancel.
+
+### `transfer-complete` (S→C, both parties)
+
+```json
+{"v":1,"type":"transfer-complete","data":{"id":"7f3a…","bytes":734003200}}
+```
+
+Emitted when the final byte has been flushed to the receiver's socket.
+
+### `transfer-failed` (S→C, both parties)
+
+```json
+{"v":1,"type":"transfer-failed","data":{"id":"7f3a…","reason":"peer-disconnected"}}
+```
+
+Reasons: `offer-timeout`, `peer-disconnected`, `peer-left-room`,
+`receiver-backpressure`, `sender-backpressure`, `server-shutdown`, or a
+protocol-violation description.
+
+## Snippets
+
+### `snippet` (C→S, forwarded S→C)
+
+```json
+{"v":1,"type":"snippet","data":{"to":"a1b2…","text":"https://example.com/doc"}}
+```
+
+Text 1..8192 bytes, target in the same room. Forwarded with `from` (peer
+object) and `to` scrubbed.
+
+## Errors
+
+### `error` (S→C)
+
+```json
+{"v":1,"type":"error","data":{"code":"bad-code","message":"unknown or expired code"}}
+```
+
+| code | meaning |
+|---|---|
+| `bad-message` | malformed envelope/payload, cap exceeded, unexpected type |
+| `bad-code` | unknown or expired room code |
+| `rate-limited` | too many room-join attempts from this IP |
+| `unknown-peer` | target peer missing or not in your room |
+| `bad-transfer` | unknown transfer ID or illegal state transition |
+
+## Timing
+
+| what | value |
+|---|---|
+| server ping interval | 30s |
+| client read deadline (pong) | 60s |
+| socket write deadline | 10s |
+| offer timeout | 30s |
+| room-code idle TTL | 10 min |
