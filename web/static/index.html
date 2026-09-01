@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark light">
+  <title>beam — drop files between devices</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='6' fill='%23F5B84B'/%3E%3Ccircle cx='16' cy='16' r='11' fill='none' stroke='%23F5B84B' stroke-opacity='.45' stroke-width='2'/%3E%3Ccircle cx='16' cy='16' r='15' fill='none' stroke='%23F5B84B' stroke-opacity='.2' stroke-width='1.5'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="wordmark" aria-label="beam">beam<span class="beacon" aria-hidden="true"></span></div>
+  <button id="netBtn" class="btn btn-ghost" type="button">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9 9 9 0 0 0-9-9Zm6.9 8h-2.95a14.6 14.6 0 0 0-1.13-5.2A7 7 0 0 1 18.9 11ZM12 5.1c.83 1.1 1.66 3.1 1.94 5.9h-3.88C10.34 8.2 11.17 6.2 12 5.1ZM9.18 5.8A14.6 14.6 0 0 0 8.05 11H5.1a7 7 0 0 1 4.08-5.2ZM5.1 13h2.95a14.6 14.6 0 0 0 1.13 5.2A7 7 0 0 1 5.1 13ZM12 18.9c-.83-1.1-1.66-3.1-1.94-5.9h3.88c-.28 2.8-1.11 4.8-1.94 5.9Zm2.82-.7A14.6 14.6 0 0 0 15.95 13h2.95a7 7 0 0 1-4.08 5.2Z"/></svg>
+    <span>Connect another network</span>
+  </button>
+</header>
+
+<main class="stage">
+  <section id="field" class="field" aria-label="Nearby devices">
+    <div class="ripple" aria-hidden="true"></div>
+    <div id="peers" class="peers"></div>
+    <div id="empty" class="empty">
+      <p class="empty-title">Nobody else is here yet</p>
+      <p class="empty-body">Open <strong>beam</strong> on another device on this network and it will appear here — or connect a device on a different network with a code.</p>
+      <button id="emptyNetBtn" class="btn btn-solid" type="button">Get a code</button>
+    </div>
+  </section>
+
+  <footer class="selfdock">
+    <div class="self-node" aria-hidden="true"><span id="selfEmoji">·</span></div>
+    <p class="self-line">
+      <span id="connState" class="conn conn-off" role="status" aria-label="connecting"></span>
+      You are <strong id="selfName">…</strong>
+    </p>
+    <p class="self-hint">Drop a file on a device to send it. Tap a device on mobile.</p>
+  </footer>
+</main>
+
+<aside id="transfersPanel" class="transfers" hidden aria-label="Transfers">
+  <div class="transfers-head">
+    <span>Transfers</span>
+    <span id="overallPct" class="mono"></span>
+  </div>
+  <div id="overallBar" class="bar"><div class="bar-fill"></div></div>
+  <ul id="transferList"></ul>
+</aside>
+
+<dialog id="offerModal" class="modal">
+  <div class="offer-from"><span id="offerEmoji" class="offer-emoji"></span></div>
+  <h2 class="modal-title"><span id="offerSender"></span> wants to send you</h2>
+  <p class="offer-file">
+    <span id="offerName" class="offer-name"></span>
+    <span id="offerSize" class="mono muted"></span>
+  </p>
+  <div class="modal-actions">
+    <button id="offerDecline" class="btn btn-ghost" type="button">Decline</button>
+    <button id="offerAccept" class="btn btn-solid" type="button">Accept</button>
+  </div>
+</dialog>
+
+<dialog id="netModal" class="modal">
+  <h2 class="modal-title">Connect another network</h2>
+  <p class="muted">On the other device, open beam and enter this code — or scan the QR.</p>
+  <div class="code-row">
+    <output id="roomCode" class="room-code mono">····</output>
+    <div id="qr" class="qr" aria-label="QR code to join this room"></div>
+  </div>
+  <p class="muted small">The code stops working after 10 minutes of no one using it.</p>
+  <form id="joinForm" class="join-row">
+    <input id="joinInput" class="join-input mono" maxlength="4" autocomplete="off" autocapitalize="characters"
+           spellcheck="false" placeholder="CODE" aria-label="Enter a code from another device">
+    <button class="btn btn-solid" type="submit">Join</button>
+  </form>
+  <button id="netClose" class="modal-x" type="button" aria-label="Close">✕</button>
+</dialog>
+
+<dialog id="snippetModal" class="modal">
+  <h2 class="modal-title">Send a note to <span id="snipTo"></span></h2>
+  <textarea id="snipText" class="snip-text" rows="4" maxlength="8000"
+            placeholder="A link, an address, a one-time code…"></textarea>
+  <div class="modal-actions">
+    <button id="snipCancel" class="btn btn-ghost" type="button">Cancel</button>
+    <button id="snipSend" class="btn btn-solid" type="button">Send note</button>
+  </div>
+</dialog>
+
+<dialog id="snippetRecvModal" class="modal">
+  <h2 class="modal-title">Note from <span id="snipFrom"></span></h2>
+  <pre id="snipRecvText" class="snip-recv"></pre>
+  <div class="modal-actions">
+    <button id="snipRecvClose" class="btn btn-ghost" type="button">Close</button>
+    <button id="snipCopy" class="btn btn-solid" type="button">Copy</button>
+  </div>
+</dialog>
+
+<div id="toasts" class="toasts" aria-live="polite"></div>
+<input type="file" id="filePicker" multiple hidden>
+
+<template id="peerCardT">
+  <div class="peer" role="listitem">
+    <button class="peer-hit" type="button">
+      <span class="avatar">
+        <svg class="ring" viewBox="0 0 120 120" aria-hidden="true">
+          <circle class="ring-bg" cx="60" cy="60" r="54"></circle>
+          <circle class="ring-fg" cx="60" cy="60" r="54"></circle>
+        </svg>
+        <span class="peer-emoji"></span>
+        <span class="peer-pct mono" hidden></span>
+      </span>
+      <span class="peer-name"></span>
+      <span class="peer-sub"></span>
+    </button>
+    <button class="snip-btn" type="button" title="Send a note">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H8.4L4.7 20.7A1 1 0 0 1 3 20V5a1 1 0 0 1 1-1Zm3 5h10M7 12h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+</template>
+
+<script src="qr.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
