@@ -603,6 +603,9 @@ body.is-dragging .note-btn { display: none; }
 
 .offer { text-align: center; }
 .offer-from { width: 72px; height: 72px; margin: 0 auto 14px; border-radius: 50%; background: var(--surface-2); border: 1px solid var(--edge-2); display: grid; place-items: center; font-size: 34px; line-height: 1; animation: pop var(--slow) var(--spring) both; }
+.offer-preview { display: block; max-width: 100%; max-height: 220px; margin: 18px auto 0; border-radius: var(--r-md); border: 1px solid var(--edge); background: var(--surface-2); object-fit: contain; }
+.offer-preview[hidden] { display: none; }
+.offer-preview + .offer-file { margin-top: 10px; }
 .offer-file { display: flex; align-items: center; gap: 12px; text-align: left; background: var(--surface-2); border: 1px solid var(--edge); border-radius: var(--r-md); padding: 12px 14px; margin-top: 18px; }
 .offer-file .tr-icon { flex: 0 0 auto; grid-row: auto; }
 .offer-name { font-weight: 600; overflow-wrap: anywhere; line-height: 1.3; }

@@ -81,6 +81,9 @@ function initOffer() {
     $("offerName").textContent = d.name;
     $("offerSize").textContent = fmtSize(d.size);
     $("offerIcon").replaceChildren(icon(fileKind(d.name, d.mime || "")));
+    const img = $("offerPreview");
+    img.hidden = !d.preview;
+    if (d.preview) img.src = d.preview; else img.removeAttribute("src");
     if (!modal.open) modal.showModal();
     $("offerAccept").focus();
     stop();

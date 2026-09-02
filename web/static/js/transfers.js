@@ -4,6 +4,7 @@ import { fileKind } from "./icons.js";
 import { available as e2e, keypair, shared, seal, open } from "./crypto.js";
 import { openSink, saveBlob } from "./sink.js";
 import * as rtc from "./rtc.js";
+import { previewOf, validPreview } from "./preview.js";
 
 export { saveBlob };
 
@@ -58,12 +59,11 @@ async function next(peerId) {
   };
   state.transfers.set(id, t);
   emit("transfer:add", t);
-  if (e2e) {
-    try { ({ priv: t.priv, pub: t.pub } = await keypair()); } catch {}
-  }
+  const [kp, preview] = await Promise.all([e2e ? keypair().catch(() => null) : null, previewOf(file)]);
+  if (kp) { t.priv = kp.priv; t.pub = kp.pub; }
   if (t.state !== "offered") return;
   try {
-    t.link.send("transfer-offer", { id, to: peerId, name: file.name, size: file.size, mime: file.type, key: t.pub || undefined });
+    t.link.send("transfer-offer", { id, to: peerId, name: file.name, size: file.size, mime: file.type, key: t.pub || undefined, preview: preview || undefined });
   } catch {
     return end(t, "failed", "couldn't reach them");
   }
@@ -260,6 +260,7 @@ export const handlers = {
     d.receivedAt = performance.now();
     d.name = String(d.name || "").split(/[\\/]/).pop().slice(0, 255) || "file";
     d.size = Number(d.size);
+    if (!validPreview(d.preview)) delete d.preview;
     if (!(d.size > 0) || !isFinite(d.size) || state.transfers.has(d.id) || state.offers.some((o) => o.id === d.id)) return;
     state.offers.push(d);
     emit("offers");
