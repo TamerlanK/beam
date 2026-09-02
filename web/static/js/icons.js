@@ -17,6 +17,7 @@ export const ICONS = {
   doc: "M6 3h8l4 4v14H6zM14 3v4h4M9 12h6M9 16h6",
   sheet: "M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM3 10h18M3 15h18M9 4v16",
   code: "M8 8l-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14",
+  clock: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7.5V12l3 2",
 };
 
 const KINDS = {

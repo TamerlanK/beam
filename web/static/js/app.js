@@ -7,6 +7,8 @@ import { initPanel } from "./panel.js";
 import { initDialogs } from "./dialogs.js";
 import { initToasts } from "./toast.js";
 import { identity, saveIdentity } from "./identity.js";
+import { initNotify } from "./notify.js";
+import { initHistory } from "./history.js";
 
 const root = document.documentElement;
 const themeBtn = $("themeBtn");
@@ -23,11 +25,6 @@ matchMedia("(prefers-color-scheme: light)").addEventListener("change", (e) => {
 });
 
 if (coarsePointer.matches) $("selfHint").textContent = "Tap a device to send it files";
-
-const baseTitle = document.title;
-document.addEventListener("visibilitychange", () => { if (!document.hidden) document.title = baseTitle; });
-on("offers", () => { if (document.hidden && state.offers.length) document.title = "Incoming file · beam"; });
-on("snippet", () => { if (document.hidden) document.title = "New note · beam"; });
 
 let hashCode = null;
 let joining = null;
@@ -133,6 +130,8 @@ on("self", () => {
 });
 
 initToasts();
+initNotify();
+initHistory();
 initPanel();
 const { openNote } = initDialogs(socket);
 initRadar({ onNote: openNote });

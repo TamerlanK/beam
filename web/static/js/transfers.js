@@ -165,7 +165,6 @@ function end(t, st, note = "") {
   emit("transfer:state", t);
   setTimeout(() => {
     state.transfers.delete(t.id);
-    if (t.blobUrl) URL.revokeObjectURL(t.blobUrl);
     emit("transfer:remove", t);
   }, st === "done" ? 7000 : 9000);
   if (t.dir === "send") next(t.peerId);

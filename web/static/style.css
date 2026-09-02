@@ -577,6 +577,13 @@ body.is-dragging .note-btn { display: none; }
 .modal[open] { animation: modal-in var(--base) var(--ease) both; }
 .modal[open]::backdrop { animation: fade-in var(--base) ease both; }
 
+.modal-wide { width: min(520px, calc(100vw - 32px)); }
+.history-empty { margin: 18px 0 0; padding: 22px; text-align: center; color: var(--muted); font-size: 14px; background: var(--surface-2); border-radius: var(--r-md); }
+.history-list { list-style: none; margin: 14px 0 0; padding: 0; max-height: min(420px, 55dvh); overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--edge-2) transparent; }
+.history-list .tr { animation: none; }
+.history-list .tr-meta { white-space: normal; }
+.history-list .tr .tr-act .btn { height: 30px; padding: 0 10px; font-size: 12.5px; border-radius: 9px; }
+.history-list .tr .tr-act .i { width: 15px; height: 15px; }
 .modal-title { font-size: 19px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.25; margin: 0 0 6px; text-wrap: balance; }
 .modal-title b { color: var(--beam-text); font-weight: 700; }
 .modal-lead { margin: 0; color: var(--muted); font-size: 14px; }

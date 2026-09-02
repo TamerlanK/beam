@@ -42,6 +42,15 @@ export function fmtLeft(sec) {
   return `${Math.floor(sec / 3600)}h ${Math.floor((sec % 3600) / 60)}m left`;
 }
 
+export function fmtAgo(ts) {
+  const s = Math.max(0, (Date.now() - ts) / 1000);
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
+  if (s < 172800) return "yesterday";
+  return new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
 export function uuidBytes(str) {
   const hex = str.replace(/-/g, "");
   const b = new Uint8Array(16);
