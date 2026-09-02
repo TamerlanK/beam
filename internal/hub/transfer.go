@@ -50,6 +50,9 @@ type Transfer struct {
 	Name   string
 	Size   int64
 	Mime   string
+	Key    string
+
+	Wire int64
 
 	State TransferState
 
@@ -67,6 +70,7 @@ func newTransfer(id uuid.UUID, fromID, toID, name string, size int64, mime strin
 		Name:     name,
 		Size:     size,
 		Mime:     mime,
+		Wire:     size,
 		State:    StateOffered,
 		Deadline: now.Add(protocol.OfferTimeoutSec * time.Second),
 	}
@@ -90,6 +94,10 @@ func (t *Transfer) Answer(actorID string, accept bool) error {
 	return t.transition(StateDeclined)
 }
 
+func (t *Transfer) Encrypt() {
+	t.Wire = protocol.WireSize(t.Size)
+}
+
 func (t *Transfer) Cancel(actorID string) error {
 	if actorID != t.FromID && actorID != t.ToID {
 		return fmt.Errorf("cancel from %q, not a party to the transfer", actorID)
@@ -109,8 +117,8 @@ func (t *Transfer) Chunk(actorID string, n int) error {
 	if t.State != StateActive {
 		return fmt.Errorf("chunk while %s", t.State)
 	}
-	if t.Relayed+int64(n) > t.Size {
-		return fmt.Errorf("received %d bytes, more than declared size %d", t.Relayed+int64(n), t.Size)
+	if t.Relayed+int64(n) > t.Wire {
+		return fmt.Errorf("received %d bytes, more than declared size %d", t.Relayed+int64(n), t.Wire)
 	}
 	t.Relayed += int64(n)
 	return nil
@@ -118,7 +126,7 @@ func (t *Transfer) Chunk(actorID string, n int) error {
 
 func (t *Transfer) NoteWritten(n int) (completed bool, err error) {
 	t.Written += int64(n)
-	if t.State == StateActive && t.Written >= t.Size {
+	if t.State == StateActive && t.Written >= t.Wire {
 		return true, t.transition(StateCompleted)
 	}
 	return false, nil

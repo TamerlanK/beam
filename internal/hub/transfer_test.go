@@ -181,3 +181,31 @@ func TestSanitizeFilename(t *testing.T) {
 		}
 	}
 }
+
+func TestTransferEncryptedWire(t *testing.T) {
+	size := int64(2*protocol.ChunkSize + 1)
+	tr := newTransfer(uuid.New(), "sender", "receiver", "file.bin", size, "", time.Now())
+	if err := tr.Answer("receiver", true); err != nil {
+		t.Fatal(err)
+	}
+	tr.Encrypt()
+	if want := size + 3*protocol.TagBytes; tr.Wire != want {
+		t.Fatalf("Wire = %d, want %d", tr.Wire, want)
+	}
+	for _, n := range []int{protocol.ChunkSize + protocol.TagBytes, protocol.ChunkSize + protocol.TagBytes, 1 + protocol.TagBytes} {
+		if err := tr.Chunk("sender", n); err != nil {
+			t.Fatalf("chunk %d: %v", n, err)
+		}
+		if done, err := tr.NoteWritten(n); err != nil {
+			t.Fatal(err)
+		} else if done != (tr.Written == tr.Wire) {
+			t.Fatalf("done = %v at %d/%d", done, tr.Written, tr.Wire)
+		}
+	}
+	if tr.State != StateCompleted {
+		t.Fatalf("state = %s", tr.State)
+	}
+	if err := tr.Chunk("sender", 1); err == nil {
+		t.Fatal("chunk beyond wire size accepted")
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -187,7 +188,7 @@ func TestOfferAnswerRelayFlow(t *testing.T) {
 	}
 	select {
 	case f := <-b.send:
-		if f.msgType != websocket.BinaryMessage || len(f.data) != protocol.MaxFrameSize {
+		if f.msgType != websocket.BinaryMessage || len(f.data) != protocol.FrameOverhead+protocol.ChunkSize {
 			t.Fatalf("b received msgType=%d len=%d", f.msgType, len(f.data))
 		}
 
@@ -371,5 +372,81 @@ func TestProfileUpdateAndIDCollision(t *testing.T) {
 	dup := addTestClient(h, "a", "1.1.1.1")
 	if dup.ID == "a" || h.clients["a"] != a {
 		t.Fatalf("duplicate id not reassigned: %q", dup.ID)
+	}
+}
+
+func TestRTCSignalForwarded(t *testing.T) {
+	h := testHub()
+	a := addTestClient(h, "a", "1.1.1.1")
+	b := addTestClient(h, "b", "1.1.1.1")
+	c := addTestClient(h, "c", "2.2.2.2")
+	drain(t, a)
+	drain(t, b)
+	drain(t, c)
+
+	sendText(h, a, protocol.TypeRTC, protocol.RTC{To: "b", Signal: json.RawMessage(`{"candidate":"x"}`)})
+	env := lastOfType(drain(t, b), protocol.TypeRTC)
+	if env == nil {
+		t.Fatal("b got no rtc signal")
+	}
+	var m protocol.RTC
+	must(t, json.Unmarshal(env.Data, &m))
+	if m.From != "a" || m.To != "" || string(m.Signal) != `{"candidate":"x"}` {
+		t.Fatalf("forwarded rtc = %+v", m)
+	}
+
+	sendText(h, a, protocol.TypeRTC, protocol.RTC{To: "c", Signal: json.RawMessage(`{}`)})
+	if e := lastOfType(drain(t, a), protocol.TypeError); e == nil {
+		t.Fatal("cross-room rtc signal was not rejected")
+	}
+	if len(drain(t, c)) != 0 {
+		t.Fatal("cross-room rtc signal leaked")
+	}
+
+	big := json.RawMessage(`"` + strings.Repeat("s", protocol.MaxSignalBytes) + `"`)
+	sendText(h, a, protocol.TypeRTC, protocol.RTC{To: "b", Signal: big})
+	if e := lastOfType(drain(t, a), protocol.TypeError); e == nil {
+		t.Fatal("oversized rtc signal was not rejected")
+	}
+}
+
+func TestEncryptedOfferNegotiation(t *testing.T) {
+	h := testHub()
+	a := addTestClient(h, "a", "1.1.1.1")
+	b := addTestClient(h, "b", "1.1.1.1")
+	drain(t, a)
+	drain(t, b)
+
+	id := uuid.New()
+	sendText(h, a, protocol.TypeTransferOffer, protocol.TransferOffer{ID: id.String(), To: "b", Name: "x.bin", Size: protocol.ChunkSize + 1, Key: "pubA"})
+	var offer protocol.TransferOffer
+	must(t, json.Unmarshal(lastOfType(drain(t, b), protocol.TypeTransferOffer).Data, &offer))
+	if offer.Key != "pubA" {
+		t.Fatalf("offer key not forwarded: %+v", offer)
+	}
+	sendText(h, b, protocol.TypeTransferAnswer, protocol.TransferAnswer{ID: id.String(), Accept: true, Key: "pubB"})
+	var ans protocol.TransferAnswer
+	must(t, json.Unmarshal(lastOfType(drain(t, a), protocol.TypeTransferAnswer).Data, &ans))
+	if ans.Key != "pubB" {
+		t.Fatalf("answer key not forwarded: %+v", ans)
+	}
+	tr := h.transfers[id]
+	if want := protocol.WireSize(protocol.ChunkSize + 1); tr.Wire != want {
+		t.Fatalf("Wire = %d, want %d", tr.Wire, want)
+	}
+	buf := make([]byte, protocol.MaxFrameSize)
+	h.handleFrame(inbound{from: a, frame: protocol.EncodeFrame(buf, id, make([]byte, protocol.ChunkSize+protocol.TagBytes)), pool: &buf})
+	if tr.State != StateActive {
+		t.Fatalf("tagged chunk rejected, state = %s", tr.State)
+	}
+
+	id2 := uuid.New()
+	sendText(h, a, protocol.TypeTransferOffer, protocol.TransferOffer{ID: id2.String(), To: "b", Name: "y.bin", Size: 10})
+	drain(t, b)
+	sendText(h, b, protocol.TypeTransferAnswer, protocol.TransferAnswer{ID: id2.String(), Accept: true, Key: "pubB"})
+	var ans2 protocol.TransferAnswer
+	must(t, json.Unmarshal(lastOfType(drain(t, a), protocol.TypeTransferAnswer).Data, &ans2))
+	if ans2.Key != "" || h.transfers[id2].Wire != 10 {
+		t.Fatalf("plaintext offer got a key back: %+v wire=%d", ans2, h.transfers[id2].Wire)
 	}
 }

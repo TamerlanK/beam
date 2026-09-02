@@ -16,11 +16,13 @@ Everything travels over one WebSocket per client (`/ws`).
   ```
   ┌────────────────────┬─────────────────────────┐
   │ transfer UUID      │ chunk payload           │
-  │ 16 bytes, raw      │ 1 – 65536 bytes         │
+  │ 16 bytes, raw      │ 1 – 65552 bytes         │
   └────────────────────┴─────────────────────────┘
   ```
 
-  Frames outside 17..65552 bytes are rejected. Frames for unknown transfer
+  Frames outside 17..65568 bytes are rejected. An end-to-end encrypted
+  transfer carries a 16-byte AES-GCM tag per chunk, so its chunks are up to
+  65552 bytes and its wire size is `size + 16 * ceil(size / 65536)`. Frames for unknown transfer
   IDs are dropped silently (a credit window's worth of chunks can legally
   trail a cancel or failure).
 
@@ -122,13 +124,18 @@ streaming immediately after acceptance without an ID round trip:
 ```json
 {"v":1,"type":"transfer-offer","data":{
   "id":"7f3a1e90-6f0e-4d0a-9d1c-2f6b8a91c4e2",
-  "to":"a1b2…","name":"holiday.mp4","size":734003200,"mime":"video/mp4"
+  "to":"a1b2…","name":"holiday.mp4","size":734003200,"mime":"video/mp4",
+  "key":"BGx1…"
 }}
 ```
 
 Validation: UUID well-formed and unused; `to` a distinct peer in the same
 room; `name` sanitized (path components and control chars stripped) and
-≤255 bytes; `0 < size ≤ 50GB`; at most 32 live transfers per sender.
+≤255 bytes; `0 < size ≤ 50GB`; `key` ≤128 chars; at most 32 live transfers
+per sender.
+
+`key` is optional: the sender's ephemeral ECDH P-256 public key (raw,
+base64). The server forwards it opaquely and never sees a private key.
 
 Server → receiver (note `from` added, `to` scrubbed):
 
@@ -144,12 +151,20 @@ Unanswered offers fail after 30s with reason `offer-timeout`.
 ### `transfer-answer` (C→S, forwarded S→C)
 
 ```json
-{"v":1,"type":"transfer-answer","data":{"id":"7f3a…","accept":true}}
+{"v":1,"type":"transfer-answer","data":{"id":"7f3a…","accept":true,"key":"BJk2…"}}
 ```
 
 Only the offer's target may answer. On accept the sender may start
 streaming with an initial window of **16 chunks** (see
 [streaming.md](streaming.md)).
+
+`key` is the receiver's ephemeral public key, ≤128 chars. The server strips
+it if the offer carried no key. When both sides supplied a key the transfer
+is end-to-end encrypted: each chunk is AES-256-GCM sealed with a key derived
+by ECDH, IV = 96-bit big-endian chunk index, AAD = the 16-byte transfer id,
+and the server accounts for the 16-byte tag per chunk. Both browsers show
+the same 4-character verification code derived from both public keys; a
+relay that substitutes keys produces mismatched codes.
 
 ### `flow-credit` (S→C, sender only)
 
@@ -186,6 +201,22 @@ Emitted when the final byte has been flushed to the receiver's socket.
 Reasons: `offer-timeout`, `peer-disconnected`, `peer-left-room`,
 `receiver-backpressure`, `sender-backpressure`, `server-shutdown`, or a
 protocol-violation description.
+
+## WebRTC signaling
+
+### `rtc` (C→S, forwarded S→C)
+
+```json
+{"v":1,"type":"rtc","data":{"to":"a1b2…","signal":{"description":{"type":"offer","sdp":"…"}}}}
+```
+
+`signal` is an opaque JSON value (1..16384 bytes) forwarded verbatim to a
+peer in the same room, with `from` set to the sender's id and `to`
+scrubbed. Browsers use it to negotiate a direct data channel; once one is
+open, offers, answers, chunks, cancels and completions for that pair travel
+over the channel using the same envelopes and frames, and the server sees
+nothing but the signaling. Transfers fall back to the relay whenever no
+channel is open.
 
 ## Snippets
 

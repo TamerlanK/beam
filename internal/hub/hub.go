@@ -257,6 +257,12 @@ func (h *Hub) handleText(c *Client, raw []byte) {
 			return
 		}
 		h.handleProfile(c, m)
+	case protocol.TypeRTC:
+		var m protocol.RTC
+		if !h.unmarshal(c, env, &m) {
+			return
+		}
+		h.handleRTC(c, m)
 	default:
 		h.sendErr(c, protocol.ErrCodeBadMessage, "unexpected message type "+env.Type)
 	}
@@ -349,6 +355,10 @@ func (h *Hub) handleOffer(c *Client, m protocol.TransferOffer) {
 		h.sendErr(c, protocol.ErrCodeBadMessage, "size must be between 1 byte and 50GB")
 		return
 	}
+	if len(m.Key) > protocol.MaxKeyChars {
+		h.sendErr(c, protocol.ErrCodeBadMessage, "key too long")
+		return
+	}
 	target := h.clients[m.To]
 	if target == nil || target.room != c.room || target == c {
 		h.sendErr(c, protocol.ErrCodeUnknownPeer, "no such peer in your room")
@@ -370,10 +380,11 @@ func (h *Hub) handleOffer(c *Client, m protocol.TransferOffer) {
 		mime = ""
 	}
 	t := newTransfer(id, c.ID, target.ID, name, m.Size, mime, time.Now())
+	t.Key = m.Key
 	h.transfers[id] = t
 	from := c.Peer()
 	h.sendJSON(target, protocol.TypeTransferOffer, protocol.TransferOffer{
-		ID: m.ID, From: &from, Name: name, Size: m.Size, Mime: mime,
+		ID: m.ID, From: &from, Name: name, Size: m.Size, Mime: mime, Key: m.Key,
 	})
 	h.logTransfer(t, "transfer offered")
 }
@@ -383,9 +394,18 @@ func (h *Hub) handleAnswer(c *Client, m protocol.TransferAnswer) {
 	if t == nil {
 		return
 	}
+	if len(m.Key) > protocol.MaxKeyChars {
+		h.sendErr(c, protocol.ErrCodeBadMessage, "key too long")
+		return
+	}
 	if err := t.Answer(c.ID, m.Accept); err != nil {
 		h.sendErr(c, protocol.ErrCodeBadTransfer, err.Error())
 		return
+	}
+	if t.Key == "" {
+		m.Key = ""
+	} else if m.Key != "" && m.Accept {
+		t.Encrypt()
 	}
 	if sender := h.clients[t.FromID]; sender != nil {
 		h.sendJSON(sender, protocol.TypeTransferAnswer, m)
@@ -446,6 +466,19 @@ func (h *Hub) handleSnippet(c *Client, m protocol.Snippet) {
 	}
 	from := c.Peer()
 	h.sendJSON(target, protocol.TypeSnippet, protocol.Snippet{From: &from, Text: m.Text})
+}
+
+func (h *Hub) handleRTC(c *Client, m protocol.RTC) {
+	if len(m.Signal) == 0 || len(m.Signal) > protocol.MaxSignalBytes {
+		h.sendErr(c, protocol.ErrCodeBadMessage, "signal must be 1..16384 bytes")
+		return
+	}
+	target := h.clients[m.To]
+	if target == nil || target.room != c.room || target == c {
+		h.sendErr(c, protocol.ErrCodeUnknownPeer, "no such peer in your room")
+		return
+	}
+	h.sendJSON(target, protocol.TypeRTC, protocol.RTC{From: c.ID, Signal: m.Signal})
 }
 
 func (h *Hub) lookupTransfer(c *Client, idStr string) *Transfer {
@@ -569,7 +602,7 @@ func (h *Hub) tick(now time.Time) {
 func (h *Hub) logTransfer(t *Transfer, msg string, args ...any) {
 	h.log.Info(msg, append([]any{
 		"transfer", t.ID.String(), "from", t.FromID, "to", t.ToID,
-		"name", t.Name, "size", t.Size, "state", t.State.String(),
+		"name", t.Name, "size", t.Size, "e2e", t.Wire != t.Size, "state", t.State.String(),
 	}, args...)...)
 }
 

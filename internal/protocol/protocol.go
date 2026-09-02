@@ -15,7 +15,9 @@ const (
 
 	FrameOverhead = 16
 
-	MaxFrameSize = FrameOverhead + ChunkSize
+	TagBytes = 16
+
+	MaxFrameSize = FrameOverhead + ChunkSize + TagBytes
 
 	CreditWindow = 16
 
@@ -36,6 +38,10 @@ const (
 	MaxNameRunes = 32
 
 	MaxEmojiBytes = 32
+
+	MaxKeyChars = 128
+
+	MaxSignalBytes = 16 * 1024
 )
 
 const RoomCodeAlphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
@@ -56,6 +62,7 @@ const (
 	TypeTransferFailed   = "transfer-failed"
 	TypeFlowCredit       = "flow-credit"
 	TypeSnippet          = "snippet"
+	TypeRTC              = "rtc"
 	TypeError            = "error"
 )
 
@@ -149,11 +156,19 @@ type TransferOffer struct {
 	Name string `json:"name"`
 	Size int64  `json:"size"`
 	Mime string `json:"mime,omitempty"`
+	Key  string `json:"key,omitempty"`
 }
 
 type TransferAnswer struct {
 	ID     string `json:"id"`
 	Accept bool   `json:"accept"`
+	Key    string `json:"key,omitempty"`
+}
+
+type RTC struct {
+	To     string          `json:"to,omitempty"`
+	From   string          `json:"from,omitempty"`
+	Signal json.RawMessage `json:"signal"`
 }
 
 type TransferCancel struct {
@@ -194,6 +209,10 @@ const (
 	ErrCodeUnknownPeer = "unknown-peer"
 	ErrCodeBadTransfer = "bad-transfer"
 )
+
+func WireSize(size int64) int64 {
+	return size + TagBytes*((size+ChunkSize-1)/ChunkSize)
+}
 
 func EncodeFrame(dst []byte, id uuid.UUID, chunk []byte) []byte {
 	copy(dst[:FrameOverhead], id[:])

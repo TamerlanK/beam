@@ -84,8 +84,8 @@ func TestFrameRoundTrip(t *testing.T) {
 	chunk := bytes.Repeat([]byte{0xAB}, ChunkSize)
 	buf := make([]byte, MaxFrameSize)
 	frame := EncodeFrame(buf, id, chunk)
-	if len(frame) != MaxFrameSize {
-		t.Fatalf("frame len = %d, want %d", len(frame), MaxFrameSize)
+	if len(frame) != FrameOverhead+ChunkSize {
+		t.Fatalf("frame len = %d, want %d", len(frame), FrameOverhead+ChunkSize)
 	}
 	gotID, gotChunk, err := SplitFrame(frame)
 	if err != nil {
