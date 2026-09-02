@@ -15,6 +15,7 @@
 - **End-to-end encrypted** — every transfer negotiates an ephemeral ECDH key and seals chunks with AES-256-GCM in the browser; both sides show a matching 4-character verification code, and the relay only ever sees ciphertext
 - **Streams to disk** — on browsers with the File System Access API the receiver writes straight to the chosen file, so multi-GB transfers never touch RAM; elsewhere it assembles a download in memory
 - **Installable** — a PWA with a share target: "Share → beam" from any app on Android or desktop, then tap the device
+- **One device, one presence** — extra tabs in the same browser wait behind a gate instead of showing up as duplicate devices; "Use this tab instead" hands the connection over, unless the other tab is mid-transfer
 - **Text snippets** — send a link or note; the receiver gets a copy-to-clipboard card
 - **Ephemeral by design** — no database, no server-side storage, nothing written to disk, identities last one session
 - **One binary** — the vanilla HTML/CSS/JS frontend is embedded with `embed.FS`; `./beam` is the whole deployment

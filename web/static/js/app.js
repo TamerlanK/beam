@@ -1,4 +1,4 @@
-import { state, emit, on, toast } from "./state.js";
+import { state, emit, on, toast, isDone } from "./state.js";
 import { $, coarsePointer } from "./util.js";
 import { createSocket } from "./socket.js";
 import * as transfers from "./transfers.js";
@@ -11,6 +11,7 @@ import { initNotify } from "./notify.js";
 import { initHistory } from "./history.js";
 import { initRTC, onSignal, reset as resetRTC } from "./rtc.js";
 import { initShare } from "./share.js";
+import { initTabs, takeover, isLeader, debug as tabsDebug } from "./tabs.js";
 
 const root = document.documentElement;
 const themeBtn = $("themeBtn");
@@ -109,7 +110,7 @@ function setConn(onLine) {
 const socket = createSocket({
   params: () => identity(),
   onOpen() { setConn(true); },
-  onClose() {
+  onClose(intentional) {
     const wasUp = state.connected;
     setConn(false);
     state.self = null;
@@ -120,7 +121,7 @@ const socket = createSocket({
     emit("code");
     resetRTC();
     transfers.dropAll("connection lost");
-    if (wasUp) toast("Connection lost, reconnecting…", "bad");
+    if (wasUp && !intentional) toast("Connection lost, reconnecting…", "bad");
   },
   onMessage(type, data) {
     const h = room[type] || transfers.handlers[type];
@@ -145,4 +146,35 @@ const { openNote } = initDialogs(socket);
 initRadar({ onNote: openNote });
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 
-window.__beam = { state, emit, transfers };
+const GATE = {
+  held: "This browser already has beam open in another tab. Use that tab, or take over here.",
+  yielded: "Another tab took over. Take it back whenever you like.",
+  asking: "Asking the other tab to hand over…",
+  busy: "The other tab is in the middle of a transfer. Try again when it finishes.",
+};
+const gateEl = $("tabGate"), gateBody = $("gateBody"), gateBtn = $("gateUse");
+function gate(status) {
+  const show = !!status;
+  gateEl.hidden = !show;
+  document.querySelector(".app").inert = show;
+  $("panel").inert = show;
+  if (show) gateBody.textContent = GATE[status] || GATE.held;
+  gateBtn.disabled = status === "asking";
+}
+gateBtn.addEventListener("click", takeover);
+
+initTabs({
+  onLead() { gate(null); socket.connect(); },
+  onWait(status) { gate(status); },
+  onYield() {
+    for (const d of document.querySelectorAll("dialog[open]")) d.close();
+    return socket.close();
+  },
+  isBusy() {
+    if (state.offers.length) return true;
+    for (const t of state.transfers.values()) if (!isDone(t)) return true;
+    return false;
+  },
+});
+
+window.__beam = { state, emit, transfers, tabs: { takeover, isLeader, debug: tabsDebug } };

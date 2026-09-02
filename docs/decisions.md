@@ -216,3 +216,25 @@ Firefox and Safari keep the old ceiling. A user who dawdles in the picker
 past the 30s offer timeout sees the offer withdrawn, not a half-written
 file.
 
+---
+
+## 2026-09-02 — One tab owns the device (Web Locks leader election)
+
+**Context.** Identity lives in localStorage, which every tab of an origin
+shares. Two tabs connected as two "devices" with the same name; the
+server de-duplicated the id but not the confusion.
+
+**Decision.** Client-side election, no server change. The first tab takes
+a Web Lock and connects; other tabs show a gate and queue a blocking
+request for the same lock. "Use this tab instead" broadcasts a takeover:
+an idle leader closes its socket cleanly and releases, a busy leader
+answers `busy` and keeps the lock, and a leader that says nothing for
+1.5s (frozen, discarded) is stolen with `steal: true`, which rejects its
+request promise and drops it behind the gate if it ever wakes.
+
+**Consequences.** A browser is exactly one presence; the persistent name
+stays meaningful. Closing the leader hands the connection to the next tab
+automatically. Server-side "kick the older connection" was rejected
+because both tabs auto-reconnect and would fight. Web Locks needs a
+secure context, so plain-HTTP LAN deployments fall back to the old
+tab-per-device behaviour; production is behind TLS anyway.
