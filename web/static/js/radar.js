@@ -147,7 +147,12 @@ function syncPeers() {
     if (!state.peers.has(id) && !c.leaving) removeCard(id);
   }
   for (const p of state.peers.values()) {
-    if (!cards.has(p.id)) addCard(p);
+    const c = cards.get(p.id);
+    if (!c) addCard(p);
+    else {
+      c.el.querySelector(".peer-emoji").textContent = p.emoji;
+      c.el.querySelector(".peer-name").textContent = p.name;
+    }
   }
   field.classList.toggle("has-peers", state.peers.size > 0);
   empty.hidden = state.peers.size > 0;

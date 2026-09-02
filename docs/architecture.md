@@ -131,4 +131,4 @@ nothing running.
 | `internal/hub` | the hub goroutine, rooms, client pumps, transfer state machine, relay |
 | `internal/protocol` | envelope, message catalog, binary framing, limits — the single wire-format authority |
 | `internal/names` | adjective-animal display names |
-| `web` | `embed.FS` of the static frontend (`static/js/`: `socket` transport · `state` store + event bus · `transfers` chunk pump/receive · `radar` ring layout, beams, drag-drop · `panel`, `dialogs`, `toast` views · `app` bootstrap) |
+| `web` | `embed.FS` of the static frontend (`static/js/`: `socket` transport · `state` store + event bus · `transfers` chunk pump/receive · `radar` ring layout, beams, drag-drop · `panel`, `dialogs`, `toast` views · `identity` persisted device · `app` bootstrap) |

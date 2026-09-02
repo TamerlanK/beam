@@ -59,7 +59,10 @@
       <div id="dropHint" class="drop-hint" aria-hidden="true"><span>Drop on a device to send</span></div>
 
       <div class="self">
-        <div id="selfNode" class="self-node" aria-hidden="true"><span id="selfEmoji"></span></div>
+        <button id="selfBtn" class="self-btn" type="button" aria-label="Edit your name and avatar">
+          <span id="selfNode" class="self-node" aria-hidden="true"><span id="selfEmoji"></span></span>
+          <span class="self-edit" aria-hidden="true"><svg class="i" viewBox="0 0 24 24"><path d="M4 20h4L18 10l-4-4L4 16zM13 7l4 4"/></svg></span>
+        </button>
         <p class="self-meta">
           <span id="connState" class="conn" data-state="off" role="status" aria-label="Connecting"></span>
           <span>You are <strong id="selfName" class="self-name">…</strong></span>
@@ -121,6 +124,23 @@
   <button id="netClose" class="modal-x" type="button" aria-label="Close">
     <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
   </button>
+</dialog>
+
+<dialog id="profileModal" class="modal" aria-labelledby="profileTitle">
+  <h2 id="profileTitle" class="modal-title">Your device</h2>
+  <p class="modal-lead">This is how other devices see you. It stays the same in this browser.</p>
+  <div class="prof-row">
+    <span id="profPreview" class="prof-preview" aria-hidden="true"></span>
+    <span class="prof-field">
+      <input id="profName" class="prof-name" maxlength="32" autocomplete="nickname" spellcheck="false" aria-label="Device name" placeholder="Device name" aria-describedby="profCount">
+      <span id="profCount" class="prof-count" aria-live="polite">0 / 32</span>
+    </span>
+  </div>
+  <div id="profEmojis" class="emoji-grid" role="radiogroup" aria-label="Avatar"></div>
+  <div class="modal-actions">
+    <button id="profCancel" class="btn btn-ghost" type="button">Cancel</button>
+    <button id="profSave" class="btn btn-primary" type="button">Save</button>
+  </div>
 </dialog>
 
 <dialog id="snipModal" class="modal" aria-labelledby="snipTitle">

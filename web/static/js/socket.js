@@ -1,12 +1,13 @@
 const PROTO_V = 1;
 
-export function createSocket({ onOpen, onClose, onMessage, onBinary }) {
+export function createSocket({ params, onOpen, onClose, onMessage, onBinary }) {
   let ws = null;
   let delay = 1000;
 
   function connect() {
     const scheme = location.protocol === "https:" ? "wss" : "ws";
-    ws = new WebSocket(`${scheme}://${location.host}/ws`);
+    const q = params ? `?${new URLSearchParams(params())}` : "";
+    ws = new WebSocket(`${scheme}://${location.host}/ws${q}`);
     ws.binaryType = "arraybuffer";
     ws.onopen = () => { delay = 1000; onOpen(); };
     ws.onmessage = (ev) => {

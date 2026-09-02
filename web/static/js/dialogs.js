@@ -1,7 +1,8 @@
 import { state, on, emit, toast } from "./state.js";
-import { $, icon, fmtSize, asURL, copyText } from "./util.js";
+import { $, el, icon, fmtSize, asURL, copyText } from "./util.js";
 import { fileKind } from "./icons.js";
 import { answerOffer, OFFER_TTL } from "./transfers.js";
+import { EMOJIS, identity, saveIdentity } from "./identity.js";
 
 const CODE_RE = /^[2-9A-HJ-NP-Z]{4}$/;
 let socket;
@@ -10,7 +11,52 @@ export function initDialogs(s) {
   socket = s;
   initOffer();
   initConnect();
+  initProfile();
   return { openNote: initNotes() };
+}
+
+function initProfile() {
+  const modal = $("profileModal"), name = $("profName"), grid = $("profEmojis"), preview = $("profPreview"), count = $("profCount");
+  const MAX = Number(name.maxLength);
+  let emoji = "";
+
+  function counted() {
+    const n = [...name.value].length;
+    count.textContent = `${n} / ${MAX}`;
+    count.classList.toggle("is-full", n >= MAX);
+  }
+
+  function pick(e) {
+    emoji = e;
+    preview.textContent = e;
+    for (const b of grid.children) b.setAttribute("aria-checked", String(b.textContent === e));
+  }
+
+  function open() {
+    const me = state.self || identity();
+    name.value = me.name;
+    const list = EMOJIS.includes(me.emoji) ? EMOJIS : [me.emoji, ...EMOJIS];
+    grid.replaceChildren(...list.map((e) => el("button", { type: "button", role: "radio", "aria-checked": "false", "aria-label": e, onclick: () => pick(e) }, e)));
+    pick(me.emoji);
+    counted();
+    modal.showModal();
+    name.select();
+  }
+
+  function save() {
+    const n = name.value.trim();
+    if (!n) { name.focus(); return; }
+    socket.send("profile", { name: n, emoji });
+    saveIdentity({ name: n, emoji });
+    modal.close();
+    toast("Saved", "ok");
+  }
+
+  $("selfBtn").addEventListener("click", open);
+  $("profCancel").addEventListener("click", () => modal.close());
+  $("profSave").addEventListener("click", save);
+  name.addEventListener("input", counted);
+  name.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); save(); } });
 }
 
 function initOffer() {

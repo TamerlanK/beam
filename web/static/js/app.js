@@ -6,6 +6,7 @@ import { initRadar } from "./radar.js";
 import { initPanel } from "./panel.js";
 import { initDialogs } from "./dialogs.js";
 import { initToasts } from "./toast.js";
+import { identity, saveIdentity } from "./identity.js";
 
 const root = document.documentElement;
 const themeBtn = $("themeBtn");
@@ -44,6 +45,7 @@ const ERRORS = {
 const room = {
   "room-state"(d) {
     state.self = d.self;
+    if (!identity().name || !identity().emoji) saveIdentity({ name: d.self.name, emoji: d.self.emoji });
     state.peers.clear();
     for (const p of d.peers || []) state.peers.set(p.id, p);
     emit("self");
@@ -65,6 +67,16 @@ const room = {
     state.peers.set(p.id, p);
     emit("peers");
     toast(`${p.name} ${p.emoji} is here`);
+  },
+  "peer-updated"(p) {
+    if (state.self && p.id === state.self.id) {
+      state.self = p;
+      saveIdentity({ name: p.name, emoji: p.emoji });
+      emit("self");
+    } else if (state.peers.has(p.id)) {
+      state.peers.set(p.id, p);
+      emit("peers");
+    }
   },
   "peer-left"(d) {
     const p = state.peers.get(d.id);
@@ -93,6 +105,7 @@ function setConn(onLine) {
 }
 
 const socket = createSocket({
+  params: () => identity(),
   onOpen() { setConn(true); },
   onClose() {
     const wasUp = state.connected;

@@ -302,7 +302,8 @@ body::before {
   animation: rise var(--slow) var(--ease) backwards;
   transition: bottom var(--base) var(--ease), opacity var(--base) ease;
 }
-.self-node { transform: scale(1.05); }
+.self-btn { appearance: none; background: none; border: 0; padding: 0; position: relative; cursor: pointer; border-radius: 50%; color: inherit; }
+.self-btn:hover .self-node { transform: scale(1.05); }
 .self-edit {
   position: absolute;
   right: -2px;
@@ -323,6 +324,7 @@ body::before {
 .self-btn:hover .self-edit, .self-btn:focus-visible .self-edit { opacity: 1; transform: none; }
 @media (hover: none) { .self-edit { opacity: 1; transform: none; } }
 .self-node {
+  transition: transform var(--base) var(--spring), box-shadow var(--base);
   width: 68px;
   height: 68px;
   border-radius: 50%;
@@ -658,6 +660,41 @@ body.is-dragging .note-btn { display: none; }
 .join-input:focus { outline: 0; border-color: var(--beam); box-shadow: 0 0 0 4px var(--beam-20); }
 .join-input.is-bad { border-color: var(--bad); animation: shake 400ms ease; }
 .join-row .btn { height: 48px; padding: 0 20px; }
+
+.prof-row { display: flex; align-items: center; gap: 12px; margin-top: 18px; }
+.prof-preview { width: 56px; height: 56px; flex: 0 0 auto; border-radius: 50%; background: var(--surface-2); border: 1px solid var(--edge-2); display: grid; place-items: center; font-size: 28px; line-height: 1; }
+.prof-field { position: relative; flex: 1; min-width: 0; display: flex; }
+.prof-count { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; pointer-events: none; }
+.prof-count.is-full { color: var(--beam-text); }
+.prof-name {
+  flex: 1;
+  min-width: 0;
+  height: 48px;
+  font: 600 17px var(--font);
+  padding: 0 64px 0 14px;
+  background: var(--surface-2);
+  color: var(--ink);
+  border: 1px solid var(--edge-2);
+  border-radius: 12px;
+  transition: border-color var(--fast), box-shadow var(--fast);
+}
+.prof-name:focus { outline: 0; border-color: var(--beam); box-shadow: 0 0 0 4px var(--beam-20); }
+.emoji-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; margin-top: 16px; max-height: 232px; overflow: hidden auto; padding: 2px; scrollbar-width: thin; scrollbar-color: var(--edge-2) transparent; }
+.emoji-grid button {
+  appearance: none;
+  aspect-ratio: 1;
+  font-size: 22px;
+  line-height: 1;
+  border-radius: 10px;
+  background: var(--surface-2);
+  border: 1px solid transparent;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: transform var(--fast), border-color var(--fast), background var(--fast);
+}
+.emoji-grid button:hover { transform: scale(1.1); background: var(--surface-3); }
+.emoji-grid button[aria-checked="true"] { border-color: var(--beam); background: var(--beam-10); box-shadow: 0 0 0 3px var(--beam-20); }
 
 .snip-text {
   width: 100%;
