@@ -5,6 +5,7 @@ export const state = {
   peers: new Map(),
   transfers: new Map(),
   offers: [],
+  shared: null,
 };
 
 const bus = new EventTarget();

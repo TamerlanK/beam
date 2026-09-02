@@ -10,6 +10,7 @@ import { identity, saveIdentity } from "./identity.js";
 import { initNotify } from "./notify.js";
 import { initHistory } from "./history.js";
 import { initRTC, onSignal, reset as resetRTC } from "./rtc.js";
+import { initShare } from "./share.js";
 
 const root = document.documentElement;
 const themeBtn = $("themeBtn");
@@ -137,7 +138,9 @@ initNotify();
 initHistory();
 initPanel();
 initRTC(socket);
+initShare(socket);
 const { openNote } = initDialogs(socket);
 initRadar({ onNote: openNote });
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 
 window.__beam = { state, emit, transfers };

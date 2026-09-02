@@ -15,6 +15,11 @@
       document.documentElement.dataset.theme = t;
     })();
   </script>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="beam">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -60,6 +65,11 @@
       </div>
 
       <div id="dropHint" class="drop-hint" aria-hidden="true"><span>Drop on a device to send</span></div>
+
+      <div id="shareBar" class="share-bar" role="status" hidden>
+        <span>Tap a device to send <b id="shareWhat"></b></span>
+        <button id="shareCancel" class="btn btn-ghost" type="button">Cancel</button>
+      </div>
 
       <div class="self">
         <button id="selfBtn" class="self-btn" type="button" aria-label="Edit your name and avatar">

@@ -53,6 +53,9 @@ func New(cfg Config) (*Server, error) {
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		hub.ServeWS(s.hub, w, r, cfg.TrustProxy)
 	})
+	mux.HandleFunc("/share", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+	})
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))

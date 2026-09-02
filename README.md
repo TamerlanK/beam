@@ -14,6 +14,7 @@
 - **Direct when possible** — same-network and STUN-reachable devices negotiate a WebRTC data channel and stream peer-to-peer at LAN speed; anything else falls back to the relay automatically
 - **End-to-end encrypted** — every transfer negotiates an ephemeral ECDH key and seals chunks with AES-256-GCM in the browser; both sides show a matching 4-character verification code, and the relay only ever sees ciphertext
 - **Streams to disk** — on browsers with the File System Access API the receiver writes straight to the chosen file, so multi-GB transfers never touch RAM; elsewhere it assembles a download in memory
+- **Installable** — a PWA with a share target: "Share → beam" from any app on Android or desktop, then tap the device
 - **Text snippets** — send a link or note; the receiver gets a copy-to-clipboard card
 - **Ephemeral by design** — no database, no server-side storage, nothing written to disk, identities last one session
 - **One binary** — the vanilla HTML/CSS/JS frontend is embedded with `embed.FS`; `./beam` is the whole deployment
@@ -86,4 +87,3 @@ make loadtest    # 200 clients, 50 rooms, 25 concurrent 20MB transfers
 - Resumable transfers (chunk index is already explicit in the protocol)
 - TURN support for symmetric-NAT pairs that currently fall back to the relay
 - Streaming receive on Firefox and Safari via a service-worker download stream
-- PWA share-target so "Share → beam" works from mobile OS share sheets

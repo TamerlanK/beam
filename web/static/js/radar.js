@@ -1,6 +1,7 @@
 import { state, on, isDone } from "./state.js";
 import { $, icon, fmtRate, fmtLeft } from "./util.js";
 import { rateOf, etaOf, queueFiles } from "./transfers.js";
+import { sendShared } from "./share.js";
 
 const PAD = 60;
 const R_MIN = 150;
@@ -166,7 +167,7 @@ function addCard(p) {
   el.querySelector(".peer-name").textContent = p.name;
   const hit = el.querySelector(".peer-hit");
   hit.setAttribute("aria-label", `Send files to ${p.name}`);
-  hit.addEventListener("click", () => { picker.dataset.target = p.id; picker.click(); });
+  hit.addEventListener("click", () => { if (sendShared(p.id)) return; picker.dataset.target = p.id; picker.click(); });
   hit.addEventListener("dragover", (e) => { e.preventDefault(); el.classList.add("is-target"); });
   hit.addEventListener("dragleave", () => el.classList.remove("is-target"));
   hit.addEventListener("drop", (e) => {
