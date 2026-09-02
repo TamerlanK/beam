@@ -53,6 +53,7 @@ function updateRow(t) {
   li.className = `tr is-${t.state}`;
   act.replaceChildren();
   li.querySelector(".tr-tags").textContent = [t.sas && `🔒 ${t.sas}`, t.link && t.link.p2p && "direct"].filter(Boolean).join(" · ");
+  graph(li.querySelector(".tr-graph"), t.hist);
 
   switch (t.state) {
     case "offered":
@@ -76,6 +77,15 @@ function updateRow(t) {
     default:
       meta.textContent = t.note ? t.note[0].toUpperCase() + t.note.slice(1) : "Failed";
   }
+}
+
+function graph(svg, hist) {
+  svg.toggleAttribute("hidden", hist.length < 2);
+  if (hist.length < 2) return;
+  const max = Math.max(1, ...hist);
+  const pts = hist.map((v, i) => `${((i / (hist.length - 1)) * 100).toFixed(1)},${(23 - (v / max) * 21).toFixed(1)}`).join(" ");
+  svg.querySelector("polyline").setAttribute("points", pts);
+  svg.querySelector("polygon").setAttribute("points", `0,24 ${pts} 100,24`);
 }
 
 function cancelBtn(t) {

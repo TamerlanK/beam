@@ -546,6 +546,12 @@ body.is-dragging .note-btn { display: none; }
 .tr-tags { grid-column: 2; font-family: var(--mono); font-size: 11px; color: var(--muted); letter-spacing: 0.04em; white-space: nowrap; }
 .tr-tags:empty { display: none; }
 .tr-act { grid-row: 1 / 3; grid-column: 3; display: flex; gap: 4px; }
+.tr-graph { grid-column: 2 / 4; display: block; width: 100%; height: 24px; margin-top: 2px; overflow: visible; }
+.tr-graph[hidden] { display: none; }
+.tr-graph polygon { fill: var(--beam); fill-opacity: 0.14; }
+.tr-graph polyline { fill: none; stroke: var(--beam); stroke-width: 1.5; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.tr.is-done .tr-graph polygon { fill: var(--ok); }
+.tr.is-done .tr-graph polyline { stroke: var(--ok); }
 .tr-act .btn { height: 30px; padding: 0 10px; font-size: 12.5px; border-radius: 9px; }
 .tr-act .btn-icon { width: 30px; padding: 0; }
 .tr-act .i { width: 15px; height: 15px; }

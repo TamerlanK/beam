@@ -55,7 +55,7 @@ async function next(peerId) {
     name: file.name, size: file.size, mime: file.type, kind: fileKind(file.name, file.type),
     state: "offered", file, offset: 0, bytes: 0, credits: 0, pumping: false, seq: 0,
     priv: null, pub: "", key: null, sas: "", timer: 0,
-    samples: [], lastPaint: 0, startedAt: 0, note: "",
+    samples: [], hist: [], lastPaint: 0, startedAt: 0, note: "",
   };
   state.transfers.set(id, t);
   emit("transfer:add", t);
@@ -129,6 +129,19 @@ function paint(t) {
   emit("transfer:progress", t);
 }
 
+function record(t) {
+  t.hist.push(rateOf(t));
+  if (t.hist.length > 60) t.hist.shift();
+}
+
+setInterval(() => {
+  for (const t of state.transfers.values()) {
+    if (t.state !== "active") continue;
+    record(t);
+    emit("transfer:progress", t);
+  }
+}, 500);
+
 export function onChunk(data, link) {
   if (data.byteLength <= 16) return;
   const t = state.transfers.get(bytesToUUID(new Uint8Array(data, 0, 16)));
@@ -187,7 +200,7 @@ export async function answerOffer(accept) {
     id: d.id, idBytes: uuidBytes(d.id), dir: "recv", peerId: d.from ? d.from.id : "", link: d.link,
     name: d.name, size: d.size, mime: d.mime || "", kind: fileKind(d.name, d.mime || ""),
     state: "active", bytes: 0, seq: 0, chain: Promise.resolve(), sink, key, sas,
-    samples: [], lastPaint: 0, startedAt: performance.now(), note: "", blobUrl: null, saved: false,
+    samples: [], hist: [], lastPaint: 0, startedAt: performance.now(), note: "", blobUrl: null, saved: false,
   };
   state.transfers.set(d.id, t);
   try { d.link.send("transfer-answer", { id: d.id, accept: true, key: pub || undefined }); } catch { sink.abort(); return end(t, "failed", "connection lost"); }
@@ -201,6 +214,7 @@ export function cancel(t, note = "canceled") {
 }
 
 function end(t, st, note = "") {
+  if (t.state === "active" && t.hist.length) record(t);
   t.state = st;
   t.note = note;
   clearTimeout(t.timer);
