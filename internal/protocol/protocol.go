@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -42,6 +43,8 @@ const (
 	MaxKeyChars = 128
 
 	MaxSignalBytes = 16 * 1024
+
+	MaxPreviewBytes = 40 * 1024
 )
 
 const RoomCodeAlphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
@@ -157,6 +160,8 @@ type TransferOffer struct {
 	Size int64  `json:"size"`
 	Mime string `json:"mime,omitempty"`
 	Key  string `json:"key,omitempty"`
+
+	Preview string `json:"preview,omitempty"`
 }
 
 type TransferAnswer struct {
@@ -209,6 +214,23 @@ const (
 	ErrCodeUnknownPeer = "unknown-peer"
 	ErrCodeBadTransfer = "bad-transfer"
 )
+
+var previewPrefixes = []string{"data:image/jpeg;base64,", "data:image/png;base64,", "data:image/webp;base64,"}
+
+func ValidPreview(p string) bool {
+	if p == "" {
+		return true
+	}
+	if len(p) > MaxPreviewBytes {
+		return false
+	}
+	for _, pre := range previewPrefixes {
+		if strings.HasPrefix(p, pre) {
+			return true
+		}
+	}
+	return false
+}
 
 func WireSize(size int64) int64 {
 	return size + TagBytes*((size+ChunkSize-1)/ChunkSize)

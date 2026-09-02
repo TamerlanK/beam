@@ -137,6 +137,10 @@ per sender.
 `key` is optional: the sender's ephemeral ECDH P-256 public key (raw,
 base64). The server forwards it opaquely and never sees a private key.
 
+`preview` is optional: a `data:image/{jpeg,png,webp};base64,` thumbnail of
+at most 40KB (first page for PDFs), shown in the receiver's accept prompt.
+Anything else is rejected with `bad-message`.
+
 Server → receiver (note `from` added, `to` scrubbed):
 
 ```json

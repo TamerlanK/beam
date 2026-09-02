@@ -450,3 +450,30 @@ func TestEncryptedOfferNegotiation(t *testing.T) {
 		t.Fatalf("plaintext offer got a key back: %+v wire=%d", ans2, h.transfers[id2].Wire)
 	}
 }
+
+func TestOfferPreviewValidation(t *testing.T) {
+	h := testHub()
+	a := addTestClient(h, "a", "1.1.1.1")
+	b := addTestClient(h, "b", "1.1.1.1")
+	drain(t, a)
+	drain(t, b)
+
+	offer := func(id uuid.UUID, preview string) {
+		sendText(h, a, protocol.TypeTransferOffer, protocol.TransferOffer{ID: id.String(), To: "b", Name: "p.png", Size: 10, Preview: preview})
+	}
+	offer(uuid.New(), "data:text/html;base64,PGI+")
+	if lastOfType(drain(t, a), protocol.TypeError) == nil || len(drain(t, b)) != 0 {
+		t.Fatal("non-image preview was not rejected")
+	}
+	offer(uuid.New(), "data:image/png;base64,"+strings.Repeat("A", protocol.MaxPreviewBytes))
+	if lastOfType(drain(t, a), protocol.TypeError) == nil || len(drain(t, b)) != 0 {
+		t.Fatal("oversized preview was not rejected")
+	}
+	id := uuid.New()
+	offer(id, "data:image/jpeg;base64,/9j/4AAQ")
+	var got protocol.TransferOffer
+	must(t, json.Unmarshal(lastOfType(drain(t, b), protocol.TypeTransferOffer).Data, &got))
+	if got.Preview != "data:image/jpeg;base64,/9j/4AAQ" {
+		t.Fatalf("preview not forwarded: %+v", got)
+	}
+}

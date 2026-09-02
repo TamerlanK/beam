@@ -359,6 +359,10 @@ func (h *Hub) handleOffer(c *Client, m protocol.TransferOffer) {
 		h.sendErr(c, protocol.ErrCodeBadMessage, "key too long")
 		return
 	}
+	if !protocol.ValidPreview(m.Preview) {
+		h.sendErr(c, protocol.ErrCodeBadMessage, "preview must be a data:image URL of at most 40KB")
+		return
+	}
 	target := h.clients[m.To]
 	if target == nil || target.room != c.room || target == c {
 		h.sendErr(c, protocol.ErrCodeUnknownPeer, "no such peer in your room")
@@ -384,7 +388,7 @@ func (h *Hub) handleOffer(c *Client, m protocol.TransferOffer) {
 	h.transfers[id] = t
 	from := c.Peer()
 	h.sendJSON(target, protocol.TypeTransferOffer, protocol.TransferOffer{
-		ID: m.ID, From: &from, Name: name, Size: m.Size, Mime: mime, Key: m.Key,
+		ID: m.ID, From: &from, Name: name, Size: m.Size, Mime: mime, Key: m.Key, Preview: m.Preview,
 	})
 	h.logTransfer(t, "transfer offered")
 }
