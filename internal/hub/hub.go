@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/TamerlanK/beam/internal/names"
 	"github.com/TamerlanK/beam/internal/protocol"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -148,6 +149,10 @@ func (h *Hub) sendErr(c *Client, code, msg string) {
 }
 
 func (h *Hub) addClient(c *Client) {
+	if _, taken := h.clients[c.ID]; taken {
+		c.ID = uuid.NewString()
+		c.log.Warn("claimed device id already connected, assigned a fresh one", "newClient", c.ID)
+	}
 	h.clients[c.ID] = c
 	key := "ip:" + c.IP
 	room := h.rooms[key]
@@ -246,6 +251,12 @@ func (h *Hub) handleText(c *Client, raw []byte) {
 			return
 		}
 		h.handleSnippet(c, m)
+	case protocol.TypeProfile:
+		var m protocol.Profile
+		if !h.unmarshal(c, env, &m) {
+			return
+		}
+		h.handleProfile(c, m)
 	default:
 		h.sendErr(c, protocol.ErrCodeBadMessage, "unexpected message type "+env.Type)
 	}
@@ -405,6 +416,22 @@ func (h *Hub) handleCancel(c *Client, m protocol.TransferCancel) {
 	}
 	delete(h.transfers, t.ID)
 	h.logTransfer(t, "transfer canceled", "by", c.ID)
+}
+
+func (h *Hub) handleProfile(c *Client, m protocol.Profile) {
+	name, emoji := names.CleanName(m.Name), names.CleanEmoji(m.Emoji)
+	if name == "" || emoji == "" {
+		h.sendErr(c, protocol.ErrCodeBadMessage, "bad profile")
+		return
+	}
+	c.Name, c.Emoji = name, emoji
+	if c.room == nil {
+		return
+	}
+	self := c.Peer()
+	for _, other := range c.room.clients {
+		h.sendJSON(other, protocol.TypePeerUpdated, self)
+	}
 }
 
 func (h *Hub) handleSnippet(c *Client, m protocol.Snippet) {

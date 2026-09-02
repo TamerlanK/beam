@@ -339,3 +339,37 @@ func TestSnippetValidationAndRelay(t *testing.T) {
 		t.Fatal("oversize snippet accepted")
 	}
 }
+
+func TestProfileUpdateAndIDCollision(t *testing.T) {
+	h := testHub()
+	a := addTestClient(h, "a", "1.1.1.1")
+	b := addTestClient(h, "b", "1.1.1.1")
+	drain(t, a)
+	drain(t, b)
+
+	sendText(h, a, protocol.TypeProfile, protocol.Profile{Name: "  Bob   the Builder ", Emoji: "🦊"})
+	for _, c := range []*Client{a, b} {
+		env := lastOfType(drain(t, c), protocol.TypePeerUpdated)
+		if env == nil {
+			t.Fatalf("client %s got no peer-updated", c.ID)
+		}
+		var p protocol.Peer
+		must(t, json.Unmarshal(env.Data, &p))
+		if p.ID != "a" || p.Name != "Bob the Builder" || p.Emoji != "🦊" {
+			t.Fatalf("peer-updated = %+v", p)
+		}
+	}
+
+	sendText(h, a, protocol.TypeProfile, protocol.Profile{Name: "x", Emoji: "ab"})
+	if lastOfType(drain(t, a), protocol.TypeError) == nil {
+		t.Fatal("text avatar accepted")
+	}
+	if a.Emoji != "🦊" {
+		t.Fatalf("rejected profile still applied: %q", a.Emoji)
+	}
+
+	dup := addTestClient(h, "a", "1.1.1.1")
+	if dup.ID == "a" || h.clients["a"] != a {
+		t.Fatalf("duplicate id not reassigned: %q", dup.ID)
+	}
+}

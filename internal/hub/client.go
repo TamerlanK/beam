@@ -69,9 +69,9 @@ func ServeWS(h *Hub, w http.ResponseWriter, r *http.Request, trustProxy bool) {
 		h.log.Warn("websocket upgrade failed", "err", err, "remote", r.RemoteAddr)
 		return
 	}
-	name, emoji := names.Random()
+	id, name, emoji := identity(r)
 	c := &Client{
-		ID:     uuid.NewString(),
+		ID:     id,
 		Name:   name,
 		Emoji:  emoji,
 		Device: deviceType(r.UserAgent()),
@@ -90,6 +90,25 @@ func ServeWS(h *Hub, w http.ResponseWriter, r *http.Request, trustProxy bool) {
 	}
 	go c.writePump()
 	c.readPump()
+}
+
+func identity(r *http.Request) (id, name, emoji string) {
+	q := r.URL.Query()
+	id = uuid.NewString()
+	if u, err := uuid.Parse(q.Get("id")); err == nil && u.Version() == 4 {
+		id = u.String()
+	}
+	name, emoji = names.CleanName(q.Get("name")), names.CleanEmoji(q.Get("emoji"))
+	if name == "" || emoji == "" {
+		rn, re := names.Random()
+		if name == "" {
+			name = rn
+		}
+		if emoji == "" {
+			emoji = re
+		}
+	}
+	return id, name, emoji
 }
 
 func (c *Client) readPump() {

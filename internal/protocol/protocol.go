@@ -32,6 +32,10 @@ const (
 	RoomCodeLen = 4
 
 	RoomCodeTTLSec = 600
+
+	MaxNameRunes = 32
+
+	MaxEmojiBytes = 32
 )
 
 const RoomCodeAlphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
@@ -40,6 +44,8 @@ const (
 	TypeRoomState        = "room-state"
 	TypePeerJoined       = "peer-joined"
 	TypePeerLeft         = "peer-left"
+	TypePeerUpdated      = "peer-updated"
+	TypeProfile          = "profile"
 	TypeRoomCreate       = "room-create"
 	TypeRoomCreated      = "room-created"
 	TypeRoomJoin         = "room-join"
@@ -116,6 +122,11 @@ type Peer struct {
 type RoomState struct {
 	Self  Peer   `json:"self"`
 	Peers []Peer `json:"peers"`
+}
+
+type Profile struct {
+	Name  string `json:"name"`
+	Emoji string `json:"emoji"`
 }
 
 type PeerLeft struct {

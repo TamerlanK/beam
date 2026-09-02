@@ -26,6 +26,36 @@ Everything travels over one WebSocket per client (`/ws`).
 
 Directions below: **C→S** = client to server, **S→C** = server to client.
 
+## Identity
+
+A device presents its persisted identity as query parameters on the
+`/ws` connect URL:
+
+```
+/ws?id=<uuid v4>&name=Purple%20Falcon&emoji=%F0%9F%A6%85
+```
+
+`id` is a stable per-browser UUID. It is a claim, not a proof: the server
+only guarantees it is unique among *connected* clients and assigns a fresh
+one if it is already in use (the client learns its effective id from
+`room-state`). Missing or invalid fields get a random name/emoji. Names are
+control-stripped, whitespace-collapsed and capped at 32 runes; emoji must be
+a short non-ASCII glyph (≤32 bytes, ZWJ sequences and flags allowed).
+
+### `profile` (C→S)
+
+```json
+{"v":1,"type":"profile","data":{"name":"Bob the Builder","emoji":"🦊"}}
+```
+
+Renames the client. Invalid values return `error` code `bad-message` and
+leave the profile untouched.
+
+### `peer-updated` (S→C)
+
+Broadcast to everyone in the room, the renamed client included. Payload is
+a peer object.
+
 ## Rooms & presence
 
 ### `room-state` (S→C)
