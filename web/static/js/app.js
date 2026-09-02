@@ -66,6 +66,7 @@ const room = {
     state.peers.set(p.id, p);
     emit("peers");
     toast(`${p.name} ${p.emoji} is here`);
+    if (state.code) socket.send("room-create", {});
   },
   "peer-updated"(p) {
     if (state.self && p.id === state.self.id) {
@@ -86,6 +87,7 @@ const room = {
   },
   "room-created"(d) {
     state.code = d.code;
+    state.codeExpires = Date.now() + d.expiresIn * 1000;
     emit("code");
   },
   snippet(d) { emit("snippet", d); },

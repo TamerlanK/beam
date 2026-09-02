@@ -2,6 +2,7 @@ export const state = {
   connected: false,
   self: null,
   code: null,
+  codeExpires: 0,
   peers: new Map(),
   transfers: new Map(),
   offers: [],

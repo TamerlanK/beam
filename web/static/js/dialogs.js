@@ -100,11 +100,26 @@ function initOffer() {
 }
 
 function initConnect() {
-  const modal = $("netModal"), code = $("roomCode"), qr = $("qr"), input = $("joinInput"), pill = $("codePill");
+  const modal = $("netModal"), code = $("roomCode"), qr = $("qr"), input = $("joinInput"), pill = $("codePill"), left = $("codeLeft");
   let joining = null;
+
+  function tick() {
+    if (!state.code) return;
+    const ms = state.codeExpires - Date.now();
+    if (ms <= 0) {
+      state.code = null;
+      emit("code");
+      if (modal.open) socket.send("room-create", {});
+      return;
+    }
+    const s = Math.ceil(ms / 1000);
+    left.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  }
+  setInterval(tick, 1000);
 
   function render() {
     const c = state.code;
+    tick();
     code.classList.toggle("is-loading", !c);
     [...code.children].forEach((b, i) => { b.textContent = c ? c[i] : ""; });
     qr.replaceChildren();
@@ -143,7 +158,7 @@ function initConnect() {
     input.focus();
   });
 
-  for (const b of [$("netBtn"), $("emptyNetBtn"), pill]) b.addEventListener("click", open);
+  for (const b of [$("netBtn"), pill]) b.addEventListener("click", open);
   $("netClose").addEventListener("click", () => modal.close());
   $("copyLink").addEventListener("click", async () => {
     if (!state.code) return;

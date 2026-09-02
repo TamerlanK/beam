@@ -56,13 +56,6 @@
       <svg id="beams" class="beams" aria-hidden="true"></svg>
       <div id="peers" class="peers" role="list"></div>
 
-      <div id="empty" class="empty">
-        <div class="empty-inner">
-          <h1 class="empty-title">No one nearby yet</h1>
-          <p class="empty-body">Open beam on another device on this Wi‑Fi and it shows up here. A device on a different network can join with a code.</p>
-          <button id="emptyNetBtn" class="btn btn-primary" type="button">Get a code</button>
-        </div>
-      </div>
 
       <div id="dropHint" class="drop-hint" aria-hidden="true"><span>Drop on a device to send</span></div>
 
@@ -122,7 +115,7 @@
     <div id="qr" class="qr" role="img" aria-label="QR code to join this room"></div>
   </div>
   <p class="code-note">
-    <span>Expires after 10 minutes of no one joining.</span>
+    <span>Expires in <b id="codeLeft" class="code-left">10:00</b> unless someone joins</span>
     <button id="copyLink" class="btn btn-ghost" type="button">
       <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7L11.5 6.8"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.5-1.5"/></svg>
       Copy link
@@ -188,7 +181,7 @@
   </div>
 </dialog>
 
-<div id="toasts" class="toasts" aria-live="polite"></div>
+<div id="toasts" class="toasts" aria-live="polite" popover="manual"></div>
 <input type="file" id="filePicker" multiple hidden>
 
 <template id="peerT">

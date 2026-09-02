@@ -11,6 +11,7 @@ export function initToasts() {
       el("span", { class: "toast-ic" }, icon(GLYPH[kind] || "info")),
       el("span", { text: msg }));
     host.append(t);
+    try { if (host.matches(":popover-open")) host.hidePopover(); host.showPopover(); } catch {}
     setTimeout(() => {
       t.classList.add("is-leaving");
       setTimeout(() => t.remove(), 260);

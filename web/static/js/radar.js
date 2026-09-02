@@ -12,7 +12,7 @@ const CIRC = 289;
 const SVG = "http://www.w3.org/2000/svg";
 const cards = new Map();
 const beams = new Map();
-let field, ringsSvg, sweep, pulses, beamsSvg, peersEl, empty, selfNode, picker;
+let field, ringsSvg, sweep, pulses, beamsSvg, peersEl, selfNode, picker;
 let geo = null;
 let grid = false;
 let onNote = () => {};
@@ -20,7 +20,7 @@ let onNote = () => {};
 export function initRadar(opts) {
   onNote = opts.onNote;
   field = $("field"); ringsSvg = $("rings"); sweep = $("sweep"); pulses = field.querySelectorAll(".pulse");
-  beamsSvg = $("beams"); peersEl = $("peers"); empty = $("empty"); selfNode = $("selfNode");
+  beamsSvg = $("beams"); peersEl = $("peers"); selfNode = $("selfNode");
   picker = $("filePicker");
 
   new ResizeObserver(() => layout()).observe(field);
@@ -156,7 +156,6 @@ function syncPeers() {
     }
   }
   field.classList.toggle("has-peers", state.peers.size > 0);
-  empty.hidden = state.peers.size > 0;
   layout();
 }
 
