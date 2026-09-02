@@ -57,10 +57,10 @@
       <div id="peers" class="peers" role="list"></div>
 
 
-      <div id="dropHint" class="drop-hint" aria-hidden="true"><span>Drop on a device to send</span></div>
+      <div id="dropHint" class="drop-hint" aria-hidden="true"><span>Drop on a device to send now, or anywhere to pick a device after</span></div>
 
       <div id="shareBar" class="share-bar" role="status" hidden>
-        <span>Tap a device to send <b id="shareWhat"></b></span>
+        <span><span id="shareVerb">Tap a device to send</span> <b id="shareWhat"></b></span>
         <button id="shareCancel" class="btn btn-ghost" type="button">Cancel</button>
       </div>
 
@@ -73,7 +73,7 @@
           <span id="connState" class="conn" data-state="off" role="status" aria-label="Connecting"></span>
           <span>You are <strong id="selfName" class="self-name">…</strong></span>
         </p>
-        <p id="selfHint" class="self-hint">Drop a file on a device to send it</p>
+        <p id="selfHint" class="self-hint">Drop files on a device, or anywhere to choose one after</p>
       </div>
     </section>
   </main>

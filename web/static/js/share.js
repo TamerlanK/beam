@@ -1,4 +1,4 @@
-import { state, emit, toast } from "./state.js";
+import { state, emit, on, toast } from "./state.js";
 import { $ } from "./util.js";
 import { queueFiles } from "./transfers.js";
 
@@ -8,6 +8,7 @@ let socket;
 export async function initShare(s) {
   socket = s;
   $("shareCancel").addEventListener("click", () => setShared(null));
+  on("peers", () => { if (state.shared) setShared(state.shared); });
   if (!("caches" in window) || !new URLSearchParams(location.search).has("share")) return;
   history.replaceState(null, "", location.pathname);
   const cache = await caches.open(CACHE);
@@ -27,9 +28,17 @@ function setShared(v) {
   const bar = $("shareBar");
   bar.hidden = !v;
   if (!v) return;
-  const what = v.files.length ? (v.files.length === 1 ? v.files[0].name : `${v.files.length} files`) : "a note";
-  $("shareWhat").textContent = what;
+  const n = v.files.length;
+  $("shareWhat").textContent = n === 0 ? "a note" : n === 1 ? v.files[0].name : `${v.files[0].name} and ${n - 1} more`;
+  $("shareVerb").textContent = state.peers.size ? "Tap a device to send" : "Waiting for a device to send";
   emit("layout");
+}
+
+export function stageFiles(files) {
+  const add = [...files].filter((f) => f.size > 0);
+  if (!add.length) return;
+  const cur = state.shared && state.shared.files ? state.shared.files : [];
+  setShared({ files: [...cur, ...add], text: "" });
 }
 
 export function sendShared(peerId) {

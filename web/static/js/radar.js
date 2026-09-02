@@ -1,7 +1,7 @@
 import { state, on, isDone } from "./state.js";
 import { $, icon, fmtRate, fmtLeft } from "./util.js";
 import { rateOf, etaOf, queueFiles } from "./transfers.js";
-import { sendShared } from "./share.js";
+import { sendShared, stageFiles } from "./share.js";
 
 const PAD = 60;
 const R_MIN = 150;
@@ -325,8 +325,6 @@ function initDrag() {
     e.preventDefault();
     if (!hasFiles(e)) return endDrag();
     endDrag();
-    if (state.peers.size === 1 && e.dataTransfer.files.length) {
-      queueFiles(state.peers.keys().next().value, e.dataTransfer.files);
-    }
+    stageFiles(e.dataTransfer.files);
   });
 }

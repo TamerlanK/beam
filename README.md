@@ -16,6 +16,7 @@
 - **Streams to disk** — on browsers with the File System Access API the receiver writes straight to the chosen file, so multi-GB transfers never touch RAM; elsewhere it assembles a download in memory
 - **Installable** — a PWA with a share target: "Share → beam" from any app on Android or desktop, then tap the device
 - **One device, one presence** — extra tabs in the same browser wait behind a gate instead of showing up as duplicate devices; "Use this tab instead" hands the connection over, unless the other tab is mid-transfer
+- **Previews, staging, live graphs** — images and PDFs show a thumbnail in the accept prompt before a byte is transferred; drop files anywhere to stage them and pick the device after; every transfer row plots its throughput
 - **Text snippets** — send a link or note; the receiver gets a copy-to-clipboard card
 - **Ephemeral by design** — no database, no server-side storage, nothing written to disk, identities last one session
 - **One binary** — the vanilla HTML/CSS/JS frontend is embedded with `embed.FS`; `./beam` is the whole deployment
