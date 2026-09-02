@@ -9,6 +9,7 @@ import { initToasts } from "./toast.js";
 import { identity, saveIdentity } from "./identity.js";
 import { initNotify } from "./notify.js";
 import { initHistory } from "./history.js";
+import { initRTC, onSignal, reset as resetRTC } from "./rtc.js";
 
 const root = document.documentElement;
 const themeBtn = $("themeBtn");
@@ -87,6 +88,7 @@ const room = {
     emit("code");
   },
   snippet(d) { emit("snippet", d); },
+  rtc: onSignal,
   error(d) {
     if (d.code === "bad-code" || d.code === "rate-limited") { joining = null; emit("join-failed"); }
     toast(ERRORS[d.code] || d.message || "Something went wrong", "bad");
@@ -113,14 +115,15 @@ const socket = createSocket({
     joining = null;
     emit("peers");
     emit("code");
+    resetRTC();
     transfers.dropAll("connection lost");
     if (wasUp) toast("Connection lost, reconnecting…", "bad");
   },
   onMessage(type, data) {
     const h = room[type] || transfers.handlers[type];
-    if (h) h(data);
+    if (h) h(data, transfers.socketLink);
   },
-  onBinary: transfers.onChunk,
+  onBinary: (buf) => transfers.onChunk(buf, transfers.socketLink),
 });
 transfers.bindSocket(socket);
 
@@ -133,6 +136,7 @@ initToasts();
 initNotify();
 initHistory();
 initPanel();
+initRTC(socket);
 const { openNote } = initDialogs(socket);
 initRadar({ onNote: openNote });
 

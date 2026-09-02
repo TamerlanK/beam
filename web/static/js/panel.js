@@ -52,6 +52,7 @@ function updateRow(t) {
   const fill = li.querySelector(".tr-bar i");
   li.className = `tr is-${t.state}`;
   act.replaceChildren();
+  li.querySelector(".tr-tags").textContent = [t.sas && `🔒 ${t.sas}`, t.link && t.link.p2p && "direct"].filter(Boolean).join(" · ");
 
   switch (t.state) {
     case "offered":
@@ -69,7 +70,7 @@ function updateRow(t) {
       break;
     }
     case "done":
-      meta.textContent = t.dir === "send" ? `Sent to ${who}` : "Saved to your downloads";
+      meta.textContent = t.dir === "send" ? `Sent to ${who}` : t.saved ? "Saved" : "Saved to your downloads";
       if (t.blobUrl) act.append(el("button", { class: "btn btn-ghost", type: "button", onclick: () => saveBlob(t) }, icon("save"), "Save again"));
       break;
     default:

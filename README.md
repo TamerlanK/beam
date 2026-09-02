@@ -11,6 +11,9 @@
 - **Zero setup** — open the page on two devices; same-network devices are grouped automatically (by public IP) and appear as avatar cards
 - **Cross-network rooms** — a 4-char code (unambiguous alphabet, 10-minute idle TTL) or QR scan joins a device from anywhere into your room
 - **Streamed transfers** — accept/decline prompt, then 64KB chunks relayed with live progress (%, MB/s, ETA) on both sides; multi-file queues per peer, concurrent transfers across pairs
+- **Direct when possible** — same-network and STUN-reachable devices negotiate a WebRTC data channel and stream peer-to-peer at LAN speed; anything else falls back to the relay automatically
+- **End-to-end encrypted** — every transfer negotiates an ephemeral ECDH key and seals chunks with AES-256-GCM in the browser; both sides show a matching 4-character verification code, and the relay only ever sees ciphertext
+- **Streams to disk** — on browsers with the File System Access API the receiver writes straight to the chosen file, so multi-GB transfers never touch RAM; elsewhere it assembles a download in memory
 - **Text snippets** — send a link or note; the receiver gets a copy-to-clipboard card
 - **Ephemeral by design** — no database, no server-side storage, nothing written to disk, identities last one session
 - **One binary** — the vanilla HTML/CSS/JS frontend is embedded with `embed.FS`; `./beam` is the whole deployment
@@ -63,8 +66,9 @@ flowchart LR
 
 Recorded as dated ADRs in [docs/decisions.md](docs/decisions.md). The big ones:
 
-- **Relay over WebRTC** — a server relay works through every NAT/firewall with zero signaling complexity; the cost is server bandwidth. WebRTC P2P (with the relay as fallback) is the natural next step.
-- **Receiver assembles a Blob in memory** — the price of a no-install browser receiver; fine for the multi-GB range, not for files larger than RAM. See [docs/streaming.md](docs/streaming.md).
+- **Relay first, WebRTC on top** — the relay works through every NAT/firewall and keeps the protocol exhaustively testable; a data channel is an optimization the browsers negotiate among themselves and the same envelopes flow over either pipe.
+- **Per-transfer ephemeral keys** — one ECDH exchange per file, piggybacked on the existing offer/answer; no identity keys, no key storage, forward secrecy for free. The verification code is the honest answer to a malicious relay.
+- **Receiver streams to disk where the browser allows it** — File System Access on Chromium, in-memory Blob elsewhere. See [docs/streaming.md](docs/streaming.md).
 - **Rooms keyed by public IP** — same-NAT devices find each other with zero configuration; devices behind carrier-grade NAT may see strangers, which is why every transfer needs an explicit accept.
 - **Sender-generated transfer UUIDs** — lets the sender start streaming immediately on acceptance without an ID round trip; the server validates format and uniqueness.
 
@@ -79,7 +83,7 @@ make loadtest    # 200 clients, 50 rooms, 25 concurrent 20MB transfers
 
 ## Future work
 
-- WebRTC data channels for true P2P (relay as fallback)
-- End-to-end encryption (relay already never inspects payloads)
 - Resumable transfers (chunk index is already explicit in the protocol)
+- TURN support for symmetric-NAT pairs that currently fall back to the relay
+- Streaming receive on Firefox and Safari via a service-worker download stream
 - PWA share-target so "Share → beam" works from mobile OS share sheets

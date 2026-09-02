@@ -105,3 +105,16 @@ on completion, then triggers a download. This is a deliberate tradeoff:
 - **Exit path:** the protocol already streams; swapping the receiver's
   sink for a File System Access writer or service-worker stream requires
   no server or protocol change.
+
+## Receiver sinks (2026-09-02)
+
+The receiver now picks a sink when the user accepts:
+
+- **File System Access** (`showSaveFilePicker`, Chromium): every decrypted
+  chunk goes straight to the file's writable stream; memory stays flat
+  regardless of file size.
+- **In-memory Blob** (everything else, or when the picker is dismissed):
+  the previous behaviour, with the RAM ceiling described above.
+
+The sink is opened *before* the answer is sent, so no chunks are queued
+while the picker is open.

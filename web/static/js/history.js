@@ -1,6 +1,7 @@
 import { state, on, emit, isDone, toast } from "./state.js";
 import { $, el, icon, fmtSize, fmtAgo } from "./util.js";
-import { queueFiles, saveBlob } from "./transfers.js";
+import { queueFiles } from "./transfers.js";
+import { saveBlob } from "./sink.js";
 
 const KEY = "beam:history";
 const MAX = 50;

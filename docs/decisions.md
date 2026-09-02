@@ -158,3 +158,61 @@ Caddy/nginx for TLS termination.
 **Consequences.** No certificate management in-process; the reverse proxy
 also supplies `X-Forwarded-For`, which `-trust-proxy` is designed for.
 Documented in the README quickstart.
+
+---
+
+## 2026-09-02 — WebRTC data channel as a second pipe, not a second protocol
+
+**Context.** P2P would cut relay bandwidth and lift LAN transfers to
+link speed, but WebRTC adds ICE failure modes the relay never had.
+
+**Decision.** Browsers eagerly negotiate one data channel per peer pair
+(perfect-negotiation pattern, STUN only) via an opaque `rtc` signaling
+message the server forwards blindly. A transfer picks its pipe at offer
+time: the open channel if there is one, otherwise the socket. The same
+JSON envelopes and binary frames flow over either; over the channel the
+receiver emits `transfer-complete` and the sender enforces the offer
+timeout, since no server is watching.
+
+**Consequences.** Zero server changes to the transfer state machine; a
+P2P transfer is invisible to the server beyond signaling. Symmetric NAT
+pairs simply stay on the relay. No TURN: it would be a second relay with
+worse accounting than the one we already have.
+
+---
+
+## 2026-09-02 — End-to-end encryption via per-transfer ECDH on the offer
+
+**Context.** The relay never stored bytes, but it could read them.
+
+**Decision.** Each offer carries an ephemeral P-256 public key; the answer
+carries the receiver's. AES-256-GCM per chunk, IV = chunk index, AAD =
+transfer id. The server treats keys as opaque strings and accounts for the
+16-byte tag per chunk (`WireSize`). Both sides display a 4-character code
+hashed from both public keys.
+
+**Consequences.** No identity keys, no pairing step, forward secrecy per
+file. The relay can still substitute keys — the verification code is the
+mitigation, and it is the user's to check. Insecure origins (plain HTTP on
+a LAN IP) have no `crypto.subtle`, so encryption is negotiated per
+transfer and a plaintext fallback stays possible; the lock badge is only
+shown when it actually happened.
+
+---
+
+## 2026-09-02 — Stream to disk with File System Access, Blob elsewhere
+
+**Context.** The in-memory Blob capped received files at the device's
+RAM; phones fail well under 2GB.
+
+**Decision.** On accept, call `showSaveFilePicker` inside the click's
+user activation and pipe decrypted chunks straight into the writable.
+Any failure (unsupported browser, picker dismissed) falls back to the
+Blob path. The answer is sent only after the sink exists, so nothing is
+buffered while the picker is open.
+
+**Consequences.** Chromium receives files of any size in flat memory.
+Firefox and Safari keep the old ceiling. A user who dawdles in the picker
+past the 30s offer timeout sees the offer withdrawn, not a half-written
+file.
+

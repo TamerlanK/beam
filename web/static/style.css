@@ -552,6 +552,8 @@ body.is-dragging .note-btn { display: none; }
 .tr-meta { grid-column: 2; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tr.is-done .tr-meta { color: var(--ok); }
 .tr.is-failed .tr-meta { color: var(--bad); }
+.tr-tags { grid-column: 2; font-family: var(--mono); font-size: 11px; color: var(--muted); letter-spacing: 0.04em; white-space: nowrap; }
+.tr-tags:empty { display: none; }
 .tr-act { grid-row: 1 / 3; grid-column: 3; display: flex; gap: 4px; }
 .tr-act .btn { height: 30px; padding: 0 10px; font-size: 12.5px; border-radius: 9px; }
 .tr-act .btn-icon { width: 30px; padding: 0; }
