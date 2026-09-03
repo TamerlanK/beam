@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"html/template"
 	"io/fs"
 	"log/slog"
 	"net"
@@ -20,6 +21,8 @@ type Config struct {
 	Debug bool
 
 	TrustProxy bool
+
+	Contact string
 
 	Log *slog.Logger
 }
@@ -53,6 +56,15 @@ func New(cfg Config) (*Server, error) {
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		hub.ServeWS(s.hub, w, r, cfg.TrustProxy)
 	})
+	privacy := template.Must(template.ParseFS(staticFS, "privacy.html"))
+	servePrivacy := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if err := privacy.Execute(w, struct{ Contact string }{cfg.Contact}); err != nil {
+			s.log.Warn("privacy page", "err", err)
+		}
+	}
+	mux.HandleFunc("/privacy", servePrivacy)
+	mux.HandleFunc("/privacy.html", servePrivacy)
 	mux.HandleFunc("/share", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 	})

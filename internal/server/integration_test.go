@@ -18,12 +18,16 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-func startServer(t *testing.T) (addr string, stop func()) {
+func startServer(t *testing.T, opts ...func(*Config)) (addr string, stop func()) {
 	t.Helper()
-	s, err := New(Config{
+	cfg := Config{
 		Addr: "127.0.0.1:0",
 		Log:  slog.New(slog.NewTextHandler(io.Discard, nil)),
-	})
+	}
+	for _, o := range opts {
+		o(&cfg)
+	}
+	s, err := New(cfg)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -401,5 +405,22 @@ func TestSecurityHeaders(t *testing.T) {
 	}
 	if strings.Contains(csp, "unsafe-inline") {
 		t.Fatalf("CSP allows unsafe-inline: %q", csp)
+	}
+}
+
+func TestPrivacyPageInjectsContact(t *testing.T) {
+	addr, stop := startServer(t, func(c *Config) { c.Contact = "ops@example.org" })
+	defer stop()
+	res, err := http.Get("http://" + addr + "/privacy")
+	if err != nil {
+		t.Fatalf("GET /privacy: %v", err)
+	}
+	body, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if res.StatusCode != 200 || !strings.Contains(res.Header.Get("Content-Type"), "text/html") {
+		t.Fatalf("status %d, content-type %q", res.StatusCode, res.Header.Get("Content-Type"))
+	}
+	if !strings.Contains(string(body), "ops@example.org") || strings.Contains(string(body), "{{") {
+		t.Fatalf("contact not rendered:\n%s", body)
 	}
 }

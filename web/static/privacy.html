@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark light">
+  <title>beam — privacy</title>
+  <script src="js/theme.js"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="app legal-app">
+  <header class="bar">
+    <a class="brand" href="./" aria-label="beam"><span class="brand-mark" aria-hidden="true"></span>beam</a>
+  </header>
+
+  <main class="legal">
+    <h1>Privacy</h1>
+    <p class="lead">beam moves files between two browsers. This page says what this server sees, what it keeps, and what stays on your device. It is written from what the code does.</p>
+
+    <h2>Processed in memory only</h2>
+    <ul>
+      <li><b>IP address.</b> Used to put devices on the same network into one room and to rate-limit room-code joins. Kept only while you are connected.</li>
+      <li><b>User-Agent.</b> Read once to pick a phone, tablet, or desktop icon. Only that icon type is kept.</li>
+      <li><b>Display name and emoji.</b> Sent to the server and shown to the other devices in your room.</li>
+      <li><b>Per transfer:</b> file name, size, type, and progress.</li>
+    </ul>
+
+    <h2>Previews</h2>
+    <p>When you offer an image or PDF, your browser may attach a small thumbnail so the receiver can see it before accepting. That thumbnail passes through the server <b>unencrypted</b>. Only the file chunks themselves are end-to-end encrypted, with a key the server never has. A relayed transfer then forwards ciphertext the server cannot read.</p>
+    <p>Encryption needs the Web Crypto API on both devices, which browsers only expose on HTTPS or localhost. If either side lacks it, or the key exchange fails, the transfer falls back to <b>plaintext</b> and a relay server can read the chunks. An encrypted transfer shows a lock and a short code in its row. Compare that code on both devices to check that nobody sits in between.</p>
+
+    <h2>Logs</h2>
+    <p>The server writes structured logs to its standard error stream. They contain client IDs, display names, IP addresses, file names and sizes, and connection events. They do not contain file contents.</p>
+    <p>The software does not store logs itself. How long they are kept is decided by the operator of this instance, not by beam. Ask the contact below for their retention period.</p>
+
+    <h2>Nothing on disk, no cookies</h2>
+    <p>The server writes nothing to disk and sets no cookies. Your device identity (a random ID, name, and emoji), your theme choice, and your transfer history live in your browser's local storage. Clearing site data removes them.</p>
+
+    <h2>Direct transfers</h2>
+    <p>When two devices connect directly, each browser asks Google's STUN server (<span class="mono">stun.l.google.com</span>) for its public address. Google sees your IP address in that request and nothing else. If a direct connection fails, the transfer is relayed through this server.</p>
+
+    <h2>Acceptable use</h2>
+    <ul>
+      <li>Do not send content that is illegal where you or the recipient are.</li>
+      <li>Do not run bots, scrapers, or scripted clients against this instance.</li>
+      <li>You are responsible for what you send and to whom.</li>
+      <li>The operator may block IP addresses without notice.</li>
+      <li>Files are never inspected. The server cannot read encrypted chunks and does not look at anything else.</li>
+    </ul>
+
+    <h2>Contact</h2>
+    <p>{{if .Contact}}Questions about this instance: <b>{{.Contact}}</b>{{else}}This instance has no configured contact.{{end}}</p>
+  </main>
+</div>
+
+</body>
+</html>

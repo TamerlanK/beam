@@ -877,3 +877,17 @@ body.is-dragging .note-btn { display: none; }
   .beam-dot { display: none; }
   .peer.is-waiting .ring-fill { animation: none; stroke-dasharray: 289; stroke-dashoffset: 217; }
 }
+
+.foot { position: absolute; right: 16px; bottom: calc(8px + var(--safe-b)); z-index: 2; font-size: 12px; }
+.foot a { color: var(--muted); text-decoration: none; }
+.foot a:hover { color: var(--ink); text-decoration: underline; }
+
+.legal-app { height: auto; min-height: 100dvh; }
+.legal { max-width: 620px; width: 100%; margin: 0 auto; padding: 8px 20px 56px; font-size: 15px; line-height: 1.55; color: var(--ink-2); }
+.legal h1 { font-size: 30px; letter-spacing: -0.03em; margin: 16px 0 8px; color: var(--ink); }
+.legal h2 { font-size: 17px; letter-spacing: -0.01em; margin: 28px 0 8px; color: var(--ink); }
+.legal .lead { color: var(--muted); }
+.legal p, .legal ul { margin: 0 0 10px; }
+.legal ul { padding-left: 20px; }
+.legal li { margin: 4px 0; }
+.legal b { color: var(--ink); font-weight: 650; }

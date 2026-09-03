@@ -14,6 +14,7 @@ import (
 func main() {
 	addr := flag.String("addr", ":8080", "listen address")
 	debug := flag.Bool("debug", false, "enable pprof on /debug/pprof/")
+	contact := flag.String("contact", "", "operator contact shown on /privacy (email or URL)")
 	trustProxy := flag.Bool("trust-proxy", false, "trust X-Forwarded-For for room grouping (only behind a trusted proxy)")
 	flag.Parse()
 
@@ -27,6 +28,7 @@ func main() {
 		Addr:       *addr,
 		Debug:      *debug,
 		TrustProxy: *trustProxy,
+		Contact:    *contact,
 		Log:        log,
 	})
 	if err != nil {
