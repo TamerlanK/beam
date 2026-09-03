@@ -108,6 +108,15 @@ func TestRoomCodeJoinAndTTL(t *testing.T) {
 		t.Fatalf("room-created = %+v", rc)
 	}
 
+	a.room.codeExpires = time.Now().Add(2 * time.Minute)
+	sendText(h, a, protocol.TypeRoomCreate, nil)
+	env = lastOfType(drain(t, a), protocol.TypeRoomCreated)
+	var rc2 protocol.RoomCreated
+	must(t, json.Unmarshal(env.Data, &rc2))
+	if rc2.Code != rc.Code || rc2.ExpiresIn > 120 {
+		t.Fatalf("re-create changed code or extended TTL: %+v", rc2)
+	}
+
 	sendText(h, b, protocol.TypeRoomJoin, protocol.RoomJoin{Code: rc.Code})
 	if a.room != b.room {
 		t.Fatal("join by code did not move b into a's room")

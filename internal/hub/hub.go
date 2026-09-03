@@ -317,9 +317,9 @@ func (h *Hub) handleRoomCreate(c *Client) {
 		}
 		room.code = code
 		h.codes[code] = room
+		room.codeExpires = now.Add(protocol.RoomCodeTTLSec * time.Second)
 	}
-	room.codeExpires = now.Add(protocol.RoomCodeTTLSec * time.Second)
-	h.sendJSON(c, protocol.TypeRoomCreated, protocol.RoomCreated{Code: room.code, ExpiresIn: protocol.RoomCodeTTLSec})
+	h.sendJSON(c, protocol.TypeRoomCreated, protocol.RoomCreated{Code: room.code, ExpiresIn: int(room.codeExpires.Sub(now).Seconds())})
 	c.log.Info("room code created", "room", room.key)
 }
 
