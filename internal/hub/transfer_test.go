@@ -209,3 +209,38 @@ func TestTransferEncryptedWire(t *testing.T) {
 		t.Fatal("chunk beyond wire size accepted")
 	}
 }
+
+func TestTransferResumeBaseline(t *testing.T) {
+	size := int64(3*protocol.ChunkSize + 1)
+	offset := int64(2 * protocol.ChunkSize)
+
+	plain := newTransfer(uuid.New(), "sender", "receiver", "file.bin", size, "", time.Now())
+	must(t, plain.Answer("receiver", true))
+	plain.Start(offset)
+	if plain.Relayed != offset || plain.Written != offset || plain.Offset != offset {
+		t.Fatalf("plain baseline = relayed %d written %d", plain.Relayed, plain.Written)
+	}
+	must(t, plain.Chunk("sender", protocol.ChunkSize))
+	must(t, plain.Chunk("sender", 1))
+	if err := plain.Chunk("sender", 1); err == nil {
+		t.Fatal("chunk beyond the remainder accepted")
+	}
+	plain.NoteWritten(protocol.ChunkSize)
+	if done, _ := plain.NoteWritten(1); !done || plain.State != StateCompleted {
+		t.Fatalf("plain resume did not complete: %s", plain.State)
+	}
+
+	enc := newTransfer(uuid.New(), "sender", "receiver", "file.bin", size, "", time.Now())
+	must(t, enc.Answer("receiver", true))
+	enc.Encrypt()
+	enc.Start(offset)
+	if want := offset + 2*protocol.TagBytes; enc.Relayed != want || enc.Written != want {
+		t.Fatalf("encrypted baseline = relayed %d written %d, want %d", enc.Relayed, enc.Written, want)
+	}
+	must(t, enc.Chunk("sender", protocol.ChunkSize+protocol.TagBytes))
+	must(t, enc.Chunk("sender", 1+protocol.TagBytes))
+	enc.NoteWritten(protocol.ChunkSize + protocol.TagBytes)
+	if done, _ := enc.NoteWritten(1 + protocol.TagBytes); !done || enc.State != StateCompleted {
+		t.Fatalf("encrypted resume did not complete: %s", enc.State)
+	}
+}

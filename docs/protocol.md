@@ -38,9 +38,10 @@ A device presents its persisted identity as query parameters on the
 ```
 
 `id` is a stable per-browser UUID. It is a claim, not a proof: the server
-only guarantees it is unique among *connected* clients and assigns a fresh
-one if it is already in use (the client learns its effective id from
-`room-state`). Missing or invalid fields get a random name/emoji. Names are
+only guarantees it is unique among *connected* clients. If the id is
+already connected, the older connection receives `error` code `replaced`
+and is closed, so a device that reconnects after a dropped link keeps its
+identity and its peers can resume transfers to it. Missing or invalid fields get a random name/emoji. Names are
 control-stripped, whitespace-collapsed and capped at 32 runes; emoji must be
 a short non-ASCII glyph (≤32 bytes, ZWJ sequences and flags allowed).
 
@@ -141,6 +142,13 @@ base64). The server forwards it opaquely and never sees a private key.
 at most 40KB (first page for PDFs), shown in the receiver's accept prompt.
 Anything else is rejected with `bad-message`.
 
+`offset` is optional and used to resume: the plaintext byte position the
+sender proposes to continue from. It must be a multiple of the chunk size
+(64KB) and below `size`, else `bad-message`. It is only a hint; the
+receiver's answer decides. Chunk alignment keeps the AES-GCM sequence
+number equal to `offset / 64KB`, so a resumed stream never reuses a nonce
+with different plaintext.
+
 Server → receiver (note `from` added, `to` scrubbed):
 
 ```json
@@ -161,6 +169,14 @@ Unanswered offers fail after 30s with reason `offer-timeout`.
 Only the offer's target may answer. On accept the sender may start
 streaming with an initial window of **16 chunks** (see
 [streaming.md](streaming.md)).
+
+`offset` is optional: the receiver's committed plaintext byte count, the
+position streaming resumes from. It must be chunk-aligned, below `size`,
+and at most the offer's `offset` hint, else `bad-message`. The receiver is
+the source of truth because up to 16 chunks can be in flight when a link
+drops. The server starts its relayed and written counters at this offset
+(its wire equivalent for encrypted transfers), so completion accounting is
+unchanged. Omitted means zero, a fresh transfer.
 
 `key` is the receiver's ephemeral public key, ≤128 chars. The server strips
 it if the offer carried no key. When both sides supplied a key the transfer
@@ -249,6 +265,7 @@ object) and `to` scrubbed.
 | `unknown-peer` | target peer missing or not in your room |
 | `bad-transfer` | unknown transfer ID or illegal state transition |
 | `too-many-connections` | the per-IP connection cap is reached; the server closes the socket after sending this, so the client must not reconnect |
+| `replaced` | the same device id connected again; this older socket is closed and the client must not reconnect |
 
 ## Timing
 

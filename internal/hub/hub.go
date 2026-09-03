@@ -161,6 +161,11 @@ func (h *Hub) sendErr(c *Client, code, msg string) {
 }
 
 func (h *Hub) addClient(c *Client) {
+	if old := h.clients[c.ID]; old != nil {
+		h.sendErr(old, protocol.ErrCodeReplaced, "this device connected again from elsewhere")
+		h.removeClient(old)
+		c.log.Info("replaced an older connection with the same device id")
+	}
 	if h.limits.MaxConnsPerIP > 0 && h.conns[c.IP] >= h.limits.MaxConnsPerIP {
 		h.sendErr(c, protocol.ErrCodeTooManyConns, "too many connections from your address")
 		close(c.send)
@@ -168,10 +173,6 @@ func (h *Hub) addClient(c *Client) {
 		return
 	}
 	h.conns[c.IP]++
-	if _, taken := h.clients[c.ID]; taken {
-		c.ID = uuid.NewString()
-		c.log.Warn("claimed device id already connected, assigned a fresh one", "newClient", c.ID)
-	}
 	h.clients[c.ID] = c
 	key := "ip:" + c.IP
 	room := h.rooms[key]
@@ -381,6 +382,10 @@ func (h *Hub) handleOffer(c *Client, m protocol.TransferOffer) {
 		h.sendErr(c, protocol.ErrCodeBadMessage, "key too long")
 		return
 	}
+	if !protocol.ValidOffset(m.Offset, m.Size) {
+		h.sendErr(c, protocol.ErrCodeBadMessage, "offset must be a chunk-aligned position below size")
+		return
+	}
 	if !protocol.ValidPreview(m.Preview) {
 		h.sendErr(c, protocol.ErrCodeBadMessage, "preview must be a data:image URL of at most 40KB")
 		return
@@ -407,10 +412,11 @@ func (h *Hub) handleOffer(c *Client, m protocol.TransferOffer) {
 	}
 	t := newTransfer(id, c.ID, target.ID, name, m.Size, mime, time.Now())
 	t.Key = m.Key
+	t.Offset = m.Offset
 	h.transfers[id] = t
 	from := c.Peer()
 	h.sendJSON(target, protocol.TypeTransferOffer, protocol.TransferOffer{
-		ID: m.ID, From: &from, Name: name, Size: m.Size, Mime: mime, Key: m.Key, Preview: m.Preview,
+		ID: m.ID, From: &from, Name: name, Size: m.Size, Mime: mime, Key: m.Key, Preview: m.Preview, Offset: m.Offset,
 	})
 	h.logTransfer(t, "transfer offered")
 }
@@ -424,6 +430,12 @@ func (h *Hub) handleAnswer(c *Client, m protocol.TransferAnswer) {
 		h.sendErr(c, protocol.ErrCodeBadMessage, "key too long")
 		return
 	}
+	if !m.Accept {
+		m.Offset = 0
+	} else if !protocol.ValidOffset(m.Offset, t.Size) || m.Offset > t.Offset {
+		h.sendErr(c, protocol.ErrCodeBadMessage, "offset must be chunk-aligned and at most the sender's")
+		return
+	}
 	if err := t.Answer(c.ID, m.Accept); err != nil {
 		h.sendErr(c, protocol.ErrCodeBadTransfer, err.Error())
 		return
@@ -432,6 +444,9 @@ func (h *Hub) handleAnswer(c *Client, m protocol.TransferAnswer) {
 		m.Key = ""
 	} else if m.Key != "" && m.Accept {
 		t.Encrypt()
+	}
+	if m.Accept {
+		t.Start(m.Offset)
 	}
 	if sender := h.clients[t.FromID]; sender != nil {
 		h.sendJSON(sender, protocol.TypeTransferAnswer, m)
@@ -564,7 +579,7 @@ func (h *Hub) handleFrame(m inbound) {
 
 func (h *Hub) handleWritten(w written) {
 	t := h.transfers[w.id]
-	if t == nil || w.to.ID != t.ToID {
+	if t == nil || h.clients[t.ToID] != w.to {
 		return
 	}
 	completed, err := t.NoteWritten(w.n)
@@ -659,7 +674,7 @@ func (h *Hub) tick(now time.Time) {
 func (h *Hub) logTransfer(t *Transfer, msg string, args ...any) {
 	h.log.Info(msg, append([]any{
 		"transfer", t.ID.String(), "from", t.FromID, "to", t.ToID,
-		"name", t.Name, "size", t.Size, "e2e", t.Wire != t.Size, "state", t.State.String(),
+		"name", t.Name, "size", t.Size, "offset", t.Offset, "e2e", t.Wire != t.Size, "state", t.State.String(),
 	}, args...)...)
 }
 

@@ -559,6 +559,8 @@ body.is-dragging .note-btn { display: none; }
 .tr-bar i { display: block; height: 100%; width: 0; background: var(--beam); border-radius: 2px; transition: width 200ms linear; }
 .tr.is-waiting .tr-bar i { width: 30%; animation: slide 1.2s ease-in-out infinite; }
 .tr.is-done .tr-bar, .tr.is-failed .tr-bar { display: none; }
+.tr.is-paused .tr-meta { color: var(--muted); }
+.tr.is-paused .tr-bar i { background: var(--muted); }
 
 .modal {
   border: 1px solid var(--edge-2);

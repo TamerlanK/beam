@@ -32,7 +32,7 @@ function drop(id) {
   const l = links.get(id);
   if (!l) return;
   links.delete(id);
-  transfers.dropLink(l, "direct connection lost");
+  transfers.pauseLink(l);
   try { l.pc.close(); } catch {}
 }
 

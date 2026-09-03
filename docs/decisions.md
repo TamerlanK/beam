@@ -263,3 +263,40 @@ bursts; a 100ms ticker is the upgrade if smoothness matters. The budget is
 global, not per IP, so one heavy sender slows everyone equally; a per-IP
 bucket is the next step if fairness becomes a problem. The cap keys on the
 same IP as room grouping, so behind a proxy it needs `-trust-proxy`.
+
+---
+
+## 2026-09-03 — Resume by receiver-reported offset, no server state
+
+**Context.** A Wi-Fi blip or a closed WebRTC data channel failed the whole
+transfer, and a 4GB file had to start over. Up to 16 chunks can be in
+flight when a link drops, so the sender's own offset overstates what
+actually landed.
+
+**Decision.** The receiver's committed byte count is the truth. On
+connection loss both sides pause instead of failing: the receiver keeps
+its File System Access writable open (aborting it discards the temp file),
+the sender keeps the file handle, and both keep the derived key. When the
+peer is back, the sender re-offers with the same transfer ID, the same
+key, and its offset as a hint; the receiver recognises the ID, peer, name,
+and size, auto-accepts without a prompt, and answers with its own offset.
+The server validates both offsets (chunk-aligned, below size, answer at
+most the hint) and starts its relayed and written counters at the wire
+equivalent, so completion logic is untouched. Chunk alignment keeps the
+AES-GCM sequence number equal to `offset / 64KB`, so a resumed stream never
+reuses a nonce with different plaintext. A lost direct link resumes over
+the relay without user action. Nothing is persisted anywhere.
+
+To make this work after a silent drop, a device that reconnects with its
+own id now **replaces** the ghost connection (which is told `replaced` and
+closed) instead of being handed a fresh id. This reverses part of the Web
+Locks ADR: two tabs no longer fight because the replaced tab stops
+reconnecting and goes idle. A room peer who learns your id could knock you
+offline this way; accepted for a LAN drop tool, since it needs your v4
+UUID and cannot read encrypted chunks or guess transfer ids.
+
+**Consequences.** Resume works only while both tabs stay open, since
+neither the server nor disk holds partial state; a reload or a two-minute
+gap fails the transfer for real. Memory-backed sinks (Firefox, Safari)
+resume as well because the parts array survives the pause. The re-offer
+is retried at most every 30 seconds until the two-minute timer expires.

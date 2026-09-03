@@ -41,6 +41,7 @@ const ERRORS = {
   "unknown-peer": "That device isn't here anymore.",
   "bad-transfer": "That transfer is no longer valid.",
   "too-many-connections": "Too many devices from your network are connected. Try again later.",
+  "replaced": "This device connected from another tab, so this one went idle. Reload to take over.",
 };
 
 const room = {
@@ -97,7 +98,7 @@ const room = {
   error(d) {
     if (d.code === "bad-code" || d.code === "rate-limited") { joining = null; emit("join-failed"); }
     toast(ERRORS[d.code] || d.message || "Something went wrong", "bad");
-    if (d.code === "too-many-connections") socket.close();
+    if (d.code === "too-many-connections" || d.code === "replaced") socket.close();
   },
 };
 
@@ -122,8 +123,8 @@ const socket = createSocket({
     emit("peers");
     emit("code");
     resetRTC();
-    transfers.dropAll("connection lost");
-    if (wasUp && !intentional) toast("Connection lost, reconnecting…", "bad");
+    const paused = transfers.pauseAll();
+    if (wasUp && !intentional) toast(paused ? "Connection lost, resuming…" : "Connection lost, reconnecting…", "bad");
   },
   onMessage(type, data) {
     const h = room[type] || transfers.handlers[type];

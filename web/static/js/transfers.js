@@ -1,4 +1,4 @@
-import { state, emit, isDone, peerName, toast } from "./state.js";
+import { state, emit, on, isDone, peerName, toast } from "./state.js";
 import { uuidBytes, bytesToUUID } from "./util.js";
 import { fileKind } from "./icons.js";
 import { available as e2e, keypair, shared, seal, open } from "./crypto.js";
@@ -11,6 +11,7 @@ export { saveBlob };
 const CHUNK = 64 * 1024;
 const INITIAL_CREDITS = 16;
 export const OFFER_TTL = 30000;
+const RESUME_TTL = 120000;
 
 let socket = null;
 const queues = new Map();
@@ -53,7 +54,7 @@ async function next(peerId) {
   const t = {
     id, idBytes: uuidBytes(id), dir: "send", peerId, link: rtc.linkFor(peerId) || socketLink,
     name: file.name, size: file.size, mime: file.type, kind: fileKind(file.name, file.type),
-    state: "offered", file, offset: 0, bytes: 0, credits: 0, pumping: false, seq: 0,
+    state: "offered", file, offset: 0, bytes: 0, credits: 0, pumping: false, seq: 0, gen: 0, reofferedAt: -Infinity,
     priv: null, pub: "", key: null, sas: "", timer: 0,
     samples: [], hist: [], lastPaint: 0, startedAt: 0, note: "",
   };
@@ -75,22 +76,24 @@ async function pump(t) {
   t.pumping = true;
   try {
     while (t.state === "active" && t.offset < t.size && t.link.ready(t)) {
-      const end = Math.min(t.offset + CHUNK, t.size);
+      const gen = t.gen, off = t.offset, seq = t.seq;
+      const end = Math.min(off + CHUNK, t.size);
       let buf;
       try {
-        buf = await t.file.slice(t.offset, end).arrayBuffer();
-        if (t.key) buf = await seal(t.key, t.seq, t.idBytes, buf);
+        buf = await t.file.slice(off, end).arrayBuffer();
+        if (t.key) buf = await seal(t.key, seq, t.idBytes, buf);
       } catch {
         cancel(t, "couldn't read the file");
         return;
       }
+      if (t.gen !== gen) continue;
       if (t.state !== "active") return;
       const frame = new Uint8Array(16 + buf.byteLength);
       frame.set(t.idBytes, 0);
       frame.set(new Uint8Array(buf), 16);
       try { t.link.sendRaw(frame); } catch { cancel(t, "connection lost"); return; }
       t.link.sent(t);
-      t.seq++;
+      t.seq = seq + 1;
       t.offset = t.bytes = end;
       sample(t);
       paint(t);
@@ -140,6 +143,7 @@ setInterval(() => {
     record(t);
     emit("transfer:progress", t);
   }
+  retryPaused();
 }, 500);
 
 export function onChunk(data, link) {
@@ -199,7 +203,7 @@ export async function answerOffer(accept) {
   const t = {
     id: d.id, idBytes: uuidBytes(d.id), dir: "recv", peerId: d.from ? d.from.id : "", link: d.link,
     name: d.name, size: d.size, mime: d.mime || "", kind: fileKind(d.name, d.mime || ""),
-    state: "active", bytes: 0, seq: 0, chain: Promise.resolve(), sink, key, sas,
+    state: "active", bytes: 0, seq: 0, chain: Promise.resolve(), sink, key, sas, pub,
     samples: [], hist: [], lastPaint: 0, startedAt: performance.now(), note: "", blobUrl: null, saved: false,
   };
   state.transfers.set(d.id, t);
@@ -209,7 +213,7 @@ export async function answerOffer(accept) {
 
 export function cancel(t, note = "canceled") {
   if (isDone(t)) return;
-  try { t.link.send("transfer-cancel", { id: t.id, reason: note }); } catch {}
+  if (t.state !== "paused") try { t.link.send("transfer-cancel", { id: t.id, reason: note }); } catch {}
   end(t, "failed", note);
 }
 
@@ -232,18 +236,86 @@ function end(t, st, note = "") {
   if (t.dir === "send") next(t.peerId);
 }
 
-export function dropLink(link, note) {
-  for (const t of state.transfers.values()) if (t.link === link && !isDone(t)) end(t, "failed", note);
+function arm(t) {
+  clearTimeout(t.timer);
+  t.timer = setTimeout(() => { if (t.state === "paused") end(t, "failed", "couldn't resume within 2 minutes"); }, RESUME_TTL);
+}
+
+function pause(t) {
+  if (t.state !== "active") return false;
+  if (t.hist.length) record(t);
+  t.state = "paused";
+  t.gen++;
+  t.credits = 0;
+  t.samples = [];
+  arm(t);
+  emit("transfer:state", t);
+  return true;
+}
+
+export function pauseLink(link) {
+  let paused = 0;
+  for (const t of state.transfers.values()) {
+    if (t.link !== link) continue;
+    if (pause(t)) paused++;
+    else if (t.state === "offered") end(t, "failed", "direct connection lost");
+  }
   const before = state.offers.length;
   for (let i = state.offers.length - 1; i >= 0; i--) if (state.offers[i].link === link) state.offers.splice(i, 1);
   if (before !== state.offers.length) emit("offers");
+  if (paused && socket && socket.open) {
+    toast("Direct link lost, resuming through the server…");
+    retryPaused();
+  }
 }
 
-export function dropAll(note) {
-  for (const t of state.transfers.values()) if (!isDone(t)) end(t, "failed", note);
+export function pauseAll() {
+  let paused = 0;
+  for (const t of state.transfers.values()) {
+    if (pause(t)) paused++;
+    else if (t.state === "offered") end(t, "failed", "connection lost");
+  }
   state.offers.length = 0;
   queues.clear();
   emit("offers");
+  return paused;
+}
+
+function retryPaused() {
+  if (!socket || !socket.open) return;
+  const now = performance.now();
+  for (const t of state.transfers.values()) {
+    if (t.dir !== "send" || t.state !== "paused" || !state.peers.has(t.peerId) || now - t.reofferedAt < OFFER_TTL) continue;
+    t.link = rtc.linkFor(t.peerId) || socketLink;
+    t.reofferedAt = now;
+    const hint = Math.min(t.offset, Math.floor((t.size - 1) / CHUNK) * CHUNK);
+    try {
+      t.link.send("transfer-offer", { id: t.id, to: t.peerId, name: t.name, size: t.size, mime: t.mime, key: t.pub || undefined, offset: hint });
+    } catch {}
+  }
+}
+on("peers", retryPaused);
+
+function resumable(t, d) {
+  return t.dir === "recv" && (t.state === "paused" || t.state === "active") && !!d.from && t.peerId === d.from.id && t.name === d.name && t.size === d.size;
+}
+
+async function resumeReceive(t, link) {
+  clearTimeout(t.timer);
+  t.link = link;
+  t.state = "paused";
+  await t.chain.catch(() => {});
+  if (isDone(t) || t.link !== link) return;
+  t.chain = Promise.resolve();
+  t.seq = Math.floor(t.bytes / CHUNK);
+  t.samples = [];
+  try {
+    link.send("transfer-answer", { id: t.id, accept: true, key: t.pub || undefined, offset: t.bytes });
+  } catch {
+    return arm(t);
+  }
+  t.state = "active";
+  emit("transfer:state", t);
 }
 
 const REASONS = {
@@ -275,22 +347,33 @@ export const handlers = {
     d.name = String(d.name || "").split(/[\\/]/).pop().slice(0, 255) || "file";
     d.size = Number(d.size);
     if (!validPreview(d.preview)) delete d.preview;
-    if (!(d.size > 0) || !isFinite(d.size) || state.transfers.has(d.id) || state.offers.some((o) => o.id === d.id)) return;
+    if (!(d.size > 0) || !isFinite(d.size)) return;
+    const t = state.transfers.get(d.id);
+    if (t) {
+      if (resumable(t, d)) resumeReceive(t, link);
+      return;
+    }
+    if (state.offers.some((o) => o.id === d.id)) return;
     state.offers.push(d);
     emit("offers");
   },
   async "transfer-answer"(d, link) {
     const t = mine(d, link);
-    if (!t || t.dir !== "send" || t.state !== "offered") return;
+    if (!t || t.dir !== "send" || (t.state !== "offered" && t.state !== "paused")) return;
     if (!d.accept) return end(t, "declined", `${peerName(t.peerId)} declined`);
     clearTimeout(t.timer);
-    if (t.pub && d.key) {
+    if (t.pub && d.key && !t.key) {
       try { ({ key: t.key, sas: t.sas } = await shared(t.priv, t.pub, d.key)); } catch { return cancel(t, "key exchange failed"); }
     }
-    if (t.state !== "offered") return;
+    if (t.state !== "offered" && t.state !== "paused") return;
+    const off = Number(d.offset) || 0;
+    if (off < 0 || off > t.offset || off % CHUNK) return cancel(t, "bad resume offset");
+    t.offset = t.bytes = off;
+    t.seq = off / CHUNK;
+    t.samples = [];
     t.state = "active";
     t.credits = INITIAL_CREDITS;
-    t.startedAt = performance.now();
+    if (!t.startedAt) t.startedAt = performance.now();
     emit("transfer:state", t);
     pump(t);
   },
@@ -308,7 +391,10 @@ export const handlers = {
   "transfer-failed"(d, link) {
     if (dropOffer(d.id, link)) return;
     const t = mine(d, link);
-    if (t && !isDone(t)) end(t, "failed", REASONS[d.reason] || d.reason);
+    if (!t || isDone(t)) return;
+    if (d.reason === "peer-disconnected" && pause(t)) return toast("Connection lost, resuming…", "bad");
+    if (t.state === "paused" && (d.reason === "peer-disconnected" || d.reason === "offer-timeout")) { t.reofferedAt = -Infinity; return; }
+    end(t, "failed", REASONS[d.reason] || d.reason);
   },
   "transfer-cancel"(d, link) {
     const o = dropOffer(d.id, link);

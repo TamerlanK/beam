@@ -70,6 +70,11 @@ function updateRow(t) {
       act.append(cancelBtn(t));
       break;
     }
+    case "paused":
+      meta.textContent = `Paused · ${fmtSize(t.bytes)} of ${fmtSize(t.size)} · resuming…`;
+      fill.style.width = `${t.size ? (t.bytes / t.size) * 100 : 0}%`;
+      act.append(cancelBtn(t));
+      break;
     case "done":
       meta.textContent = t.dir === "send" ? `Sent to ${who}` : t.saved ? "Saved" : "Saved to your downloads";
       if (t.blobUrl) act.append(el("button", { class: "btn btn-ghost", type: "button", onclick: () => saveBlob(t) }, icon("save"), "Save again"));

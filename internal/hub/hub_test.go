@@ -374,8 +374,24 @@ func TestProfileUpdateAndIDCollision(t *testing.T) {
 	}
 
 	dup := addTestClient(h, "a", "1.1.1.1")
-	if dup.ID == "a" || h.clients["a"] != a {
-		t.Fatalf("duplicate id not reassigned: %q", dup.ID)
+	if dup.ID != "a" || h.clients["a"] != dup || h.conns["1.1.1.1"] != 2 {
+		t.Fatalf("reconnecting device did not replace the old connection: conns=%v", h.conns)
+	}
+	replaced := false
+	for f := range a.send {
+		env, err := protocol.Decode(f.data)
+		must(t, err)
+		var e protocol.Error
+		if env.Type == protocol.TypeError && json.Unmarshal(env.Data, &e) == nil && e.Code == protocol.ErrCodeReplaced {
+			replaced = true
+		}
+	}
+	if !replaced {
+		t.Fatal("old connection was not told it was replaced before its send channel closed")
+	}
+	h.removeClient(a)
+	if h.clients["a"] != dup {
+		t.Fatal("stale disconnect of the old connection removed the new one")
 	}
 }
 
@@ -552,5 +568,96 @@ func TestRelayBudgetThrottlesCredits(t *testing.T) {
 	}
 	if len(h.starved) != 0 {
 		t.Fatalf("starved queue not drained: %d", len(h.starved))
+	}
+}
+
+func relayChunk(t *testing.T, h *Hub, from, to *Client, id uuid.UUID, n int) {
+	t.Helper()
+	buf := make([]byte, protocol.MaxFrameSize)
+	h.handleFrame(inbound{from: from, frame: protocol.EncodeFrame(buf, id, make([]byte, n)), pool: &buf})
+	select {
+	case f := <-to.send:
+		if f.msgType != websocket.BinaryMessage {
+			t.Fatalf("expected a relayed chunk, got msgType %d", f.msgType)
+		}
+	default:
+		t.Fatal("chunk was not relayed")
+	}
+	h.handleWritten(written{to: to, id: id, n: n})
+}
+
+func TestResumeRelaysOnlyRemainder(t *testing.T) {
+	h := testHub()
+	a := addTestClient(h, "a", "1.1.1.1")
+	b := addTestClient(h, "b", "1.1.1.1")
+	drain(t, a)
+	drain(t, b)
+
+	id := uuid.New()
+	size := int64(4 * protocol.ChunkSize)
+	sendText(h, a, protocol.TypeTransferOffer, protocol.TransferOffer{ID: id.String(), To: "b", Name: "x.bin", Size: size, Key: "pubA"})
+	drain(t, b)
+	sendText(h, b, protocol.TypeTransferAnswer, protocol.TransferAnswer{ID: id.String(), Accept: true, Key: "pubB"})
+	drain(t, a)
+	relayChunk(t, h, a, b, id, protocol.ChunkSize+protocol.TagBytes)
+	relayChunk(t, h, a, b, id, protocol.ChunkSize+protocol.TagBytes)
+	drain(t, a)
+
+	h.removeClient(b)
+	var failed protocol.TransferFailed
+	must(t, json.Unmarshal(lastOfType(drain(t, a), protocol.TypeTransferFailed).Data, &failed))
+	if failed.Reason != "peer-disconnected" || h.transfers[id] != nil {
+		t.Fatalf("drop did not fail the transfer: %+v", failed)
+	}
+
+	b2 := addTestClient(h, "b", "1.1.1.1")
+	drain(t, a)
+	drain(t, b2)
+	hint := int64(3 * protocol.ChunkSize)
+	sendText(h, a, protocol.TypeTransferOffer, protocol.TransferOffer{ID: id.String(), To: "b", Name: "x.bin", Size: size, Key: "pubA", Offset: hint})
+	var offer protocol.TransferOffer
+	must(t, json.Unmarshal(lastOfType(drain(t, b2), protocol.TypeTransferOffer).Data, &offer))
+	if offer.Offset != hint {
+		t.Fatalf("offer offset = %d, want hint %d", offer.Offset, hint)
+	}
+
+	sendText(h, b2, protocol.TypeTransferAnswer, protocol.TransferAnswer{ID: id.String(), Accept: true, Key: "pubB", Offset: hint + protocol.ChunkSize})
+	if lastOfType(drain(t, b2), protocol.TypeError) == nil || h.transfers[id].State != StateOffered {
+		t.Fatal("answer above the sender's hint was accepted")
+	}
+	sendText(h, b2, protocol.TypeTransferAnswer, protocol.TransferAnswer{ID: id.String(), Accept: true, Key: "pubB", Offset: 1})
+	if lastOfType(drain(t, b2), protocol.TypeError) == nil || h.transfers[id].State != StateOffered {
+		t.Fatal("unaligned answer offset was accepted")
+	}
+
+	committed := int64(2 * protocol.ChunkSize)
+	sendText(h, b2, protocol.TypeTransferAnswer, protocol.TransferAnswer{ID: id.String(), Accept: true, Key: "pubB", Offset: committed})
+	var ans protocol.TransferAnswer
+	must(t, json.Unmarshal(lastOfType(drain(t, a), protocol.TypeTransferAnswer).Data, &ans))
+	if ans.Offset != committed {
+		t.Fatalf("answer offset forwarded as %d, want %d", ans.Offset, committed)
+	}
+	tr := h.transfers[id]
+	if want := protocol.WireSize(committed); tr.Written != want || tr.Relayed != want {
+		t.Fatalf("baseline = %d/%d, want %d", tr.Relayed, tr.Written, want)
+	}
+
+	h.handleWritten(written{to: b, id: id, n: protocol.ChunkSize})
+	if tr.Written != protocol.WireSize(committed) {
+		t.Fatal("a stale write from the replaced connection was counted")
+	}
+
+	relayChunk(t, h, a, b2, id, protocol.ChunkSize+protocol.TagBytes)
+	if tr.State != StateActive {
+		t.Fatalf("state after first resumed chunk = %s", tr.State)
+	}
+	relayChunk(t, h, a, b2, id, protocol.ChunkSize+protocol.TagBytes)
+	if h.transfers[id] != nil || lastOfType(drain(t, a), protocol.TypeTransferComplete) == nil || lastOfType(drain(t, b2), protocol.TypeTransferComplete) == nil {
+		t.Fatal("resumed transfer did not complete after the remaining two chunks")
+	}
+
+	sendText(h, a, protocol.TypeTransferOffer, protocol.TransferOffer{ID: uuid.NewString(), To: "b", Name: "y.bin", Size: size, Offset: size})
+	if lastOfType(drain(t, a), protocol.TypeError) == nil {
+		t.Fatal("offer with offset at the declared size was accepted")
 	}
 }

@@ -162,12 +162,15 @@ type TransferOffer struct {
 	Key  string `json:"key,omitempty"`
 
 	Preview string `json:"preview,omitempty"`
+
+	Offset int64 `json:"offset,omitempty"`
 }
 
 type TransferAnswer struct {
 	ID     string `json:"id"`
 	Accept bool   `json:"accept"`
 	Key    string `json:"key,omitempty"`
+	Offset int64  `json:"offset,omitempty"`
 }
 
 type RTC struct {
@@ -214,6 +217,7 @@ const (
 	ErrCodeUnknownPeer  = "unknown-peer"
 	ErrCodeBadTransfer  = "bad-transfer"
 	ErrCodeTooManyConns = "too-many-connections"
+	ErrCodeReplaced     = "replaced"
 )
 
 var previewPrefixes = []string{"data:image/jpeg;base64,", "data:image/png;base64,", "data:image/webp;base64,"}
@@ -231,6 +235,10 @@ func ValidPreview(p string) bool {
 		}
 	}
 	return false
+}
+
+func ValidOffset(offset, size int64) bool {
+	return offset >= 0 && offset < size && offset%ChunkSize == 0
 }
 
 func WireSize(size int64) int64 {

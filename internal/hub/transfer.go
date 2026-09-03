@@ -54,6 +54,8 @@ type Transfer struct {
 
 	Wire int64
 
+	Offset int64
+
 	State TransferState
 
 	Relayed int64
@@ -96,6 +98,15 @@ func (t *Transfer) Answer(actorID string, accept bool) error {
 
 func (t *Transfer) Encrypt() {
 	t.Wire = protocol.WireSize(t.Size)
+}
+
+func (t *Transfer) Start(offset int64) {
+	t.Offset = offset
+	base := offset
+	if t.Wire != t.Size {
+		base = protocol.WireSize(offset)
+	}
+	t.Relayed, t.Written = base, base
 }
 
 func (t *Transfer) Cancel(actorID string) error {
