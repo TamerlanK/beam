@@ -1,7 +1,10 @@
-.PHONY: run build test race lint loadtest docker clean
+.PHONY: run dev build test race lint loadtest docker clean
 
 run:
 	go run ./cmd/beam
+
+dev:
+	find . -name '*.go' -o -path './web/static/*' -type f | entr -nr go run ./cmd/beam
 
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o beam ./cmd/beam
