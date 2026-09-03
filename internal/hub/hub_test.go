@@ -14,7 +14,11 @@ import (
 )
 
 func testHub() *Hub {
-	return New(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	return testHubLimits(Limits{})
+}
+
+func testHubLimits(l Limits) *Hub {
+	return New(slog.New(slog.NewTextHandler(io.Discard, nil)), l)
 }
 
 func addTestClient(h *Hub, id, ip string) *Client {
@@ -475,5 +479,78 @@ func TestOfferPreviewValidation(t *testing.T) {
 	must(t, json.Unmarshal(lastOfType(drain(t, b), protocol.TypeTransferOffer).Data, &got))
 	if got.Preview != "data:image/jpeg;base64,/9j/4AAQ" {
 		t.Fatalf("preview not forwarded: %+v", got)
+	}
+}
+
+func TestMaxConnsPerIP(t *testing.T) {
+	h := testHubLimits(Limits{MaxConnsPerIP: 2})
+	a := addTestClient(h, "a", "1.1.1.1")
+	b := addTestClient(h, "b", "1.1.1.1")
+	addTestClient(h, "z", "2.2.2.2")
+	c := addTestClient(h, "c", "1.1.1.1")
+
+	f, ok := <-c.send
+	if !ok || f.msgType != websocket.TextMessage {
+		t.Fatalf("rejected client got no error frame: ok=%v type=%d", ok, f.msgType)
+	}
+	env, err := protocol.Decode(f.data)
+	must(t, err)
+	var e protocol.Error
+	must(t, json.Unmarshal(env.Data, &e))
+	if env.Type != protocol.TypeError || e.Code != protocol.ErrCodeTooManyConns {
+		t.Fatalf("got %s/%s, want error/%s", env.Type, e.Code, protocol.ErrCodeTooManyConns)
+	}
+	if _, ok := <-c.send; ok {
+		t.Fatal("rejected client's send channel was not closed")
+	}
+	if h.clients["c"] != nil || h.clients["a"] != a || h.clients["b"] != b || h.conns["1.1.1.1"] != 2 {
+		t.Fatalf("clients=%d conns=%v", len(h.clients), h.conns)
+	}
+
+	h.removeClient(c)
+	if h.conns["1.1.1.1"] != 2 {
+		t.Fatal("removing a rejected client changed the count")
+	}
+	h.removeClient(a)
+	d := addTestClient(h, "d", "1.1.1.1")
+	if h.clients["d"] != d || h.conns["1.1.1.1"] != 2 {
+		t.Fatalf("slot not freed after disconnect: conns=%v", h.conns)
+	}
+}
+
+func TestRelayBudgetThrottlesCredits(t *testing.T) {
+	h := testHubLimits(Limits{RelayBytesPerSec: protocol.ChunkSize})
+	a := addTestClient(h, "a", "1.1.1.1")
+	b := addTestClient(h, "b", "1.1.1.1")
+	drain(t, a)
+	drain(t, b)
+
+	id := uuid.New()
+	sendText(h, a, protocol.TypeTransferOffer, protocol.TransferOffer{ID: id.String(), To: "b", Name: "x.bin", Size: 4 * protocol.ChunkSize})
+	sendText(h, b, protocol.TypeTransferAnswer, protocol.TransferAnswer{ID: id.String(), Accept: true})
+	drain(t, a)
+	drain(t, b)
+
+	ticks := 0
+	for range 4 {
+		buf := make([]byte, protocol.MaxFrameSize)
+		h.handleFrame(inbound{from: a, frame: protocol.EncodeFrame(buf, id, make([]byte, protocol.ChunkSize)), pool: &buf})
+		<-b.send
+		h.handleWritten(written{to: b, id: id, n: protocol.ChunkSize})
+		for lastOfType(drain(t, a), protocol.TypeFlowCredit) == nil && h.transfers[id] != nil {
+			if ticks++; ticks > 10 {
+				t.Fatal("credit never arrived")
+			}
+			h.tick(time.Now())
+		}
+	}
+	if h.transfers[id] != nil || lastOfType(drain(t, b), protocol.TypeTransferComplete) == nil {
+		t.Fatal("throttled transfer did not complete")
+	}
+	if ticks < 3 {
+		t.Fatalf("four chunks at one chunk per second took %d ticks, want at least 3", ticks)
+	}
+	if len(h.starved) != 0 {
+		t.Fatalf("starved queue not drained: %d", len(h.starved))
 	}
 }

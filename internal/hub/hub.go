@@ -39,8 +39,14 @@ type bucket struct {
 	last   time.Time
 }
 
+type Limits struct {
+	MaxConnsPerIP    int
+	RelayBytesPerSec int64
+}
+
 type Hub struct {
-	log *slog.Logger
+	log    *slog.Logger
+	limits Limits
 
 	register   chan *Client
 	unregister chan *Client
@@ -53,14 +59,19 @@ type Hub struct {
 	codes     map[string]*Room
 	transfers map[uuid.UUID]*Transfer
 	buckets   map[string]*bucket
+	conns     map[string]int
+
+	relayTokens int64
+	starved     []*Transfer
 }
 
-func New(log *slog.Logger) *Hub {
+func New(log *slog.Logger, limits Limits) *Hub {
 	if log == nil {
 		log = slog.Default()
 	}
 	return &Hub{
 		log:        log,
+		limits:     limits,
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
 		inbound:    make(chan inbound, 256),
@@ -71,6 +82,7 @@ func New(log *slog.Logger) *Hub {
 		codes:      map[string]*Room{},
 		transfers:  map[uuid.UUID]*Transfer{},
 		buckets:    map[string]*bucket{},
+		conns:      map[string]int{},
 	}
 }
 
@@ -149,6 +161,13 @@ func (h *Hub) sendErr(c *Client, code, msg string) {
 }
 
 func (h *Hub) addClient(c *Client) {
+	if h.limits.MaxConnsPerIP > 0 && h.conns[c.IP] >= h.limits.MaxConnsPerIP {
+		h.sendErr(c, protocol.ErrCodeTooManyConns, "too many connections from your address")
+		close(c.send)
+		c.log.Warn("rejected: too many connections from ip", "ip", c.IP)
+		return
+	}
+	h.conns[c.IP]++
 	if _, taken := h.clients[c.ID]; taken {
 		c.ID = uuid.NewString()
 		c.log.Warn("claimed device id already connected, assigned a fresh one", "newClient", c.ID)
@@ -195,10 +214,13 @@ func (h *Hub) leaveRoom(c *Client) {
 }
 
 func (h *Hub) removeClient(c *Client) {
-	if _, ok := h.clients[c.ID]; !ok {
+	if h.clients[c.ID] != c {
 		return
 	}
 	delete(h.clients, c.ID)
+	if h.conns[c.IP]--; h.conns[c.IP] <= 0 {
+		delete(h.conns, c.IP)
+	}
 	for _, t := range h.transfers {
 		if t.FromID == c.ID || t.ToID == c.ID {
 			h.failTransfer(t, "peer-disconnected")
@@ -210,7 +232,7 @@ func (h *Hub) removeClient(c *Client) {
 }
 
 func (h *Hub) handleText(c *Client, raw []byte) {
-	if _, ok := h.clients[c.ID]; !ok {
+	if h.clients[c.ID] != c {
 		return
 	}
 	env, err := protocol.Decode(raw)
@@ -501,7 +523,7 @@ func (h *Hub) lookupTransfer(c *Client, idStr string) *Transfer {
 
 func (h *Hub) handleFrame(m inbound) {
 	c := m.from
-	if _, ok := h.clients[c.ID]; !ok {
+	if h.clients[c.ID] != c {
 		framePool.Put(m.pool)
 		return
 	}
@@ -560,12 +582,42 @@ func (h *Hub) handleWritten(w written) {
 		h.logTransfer(t, "transfer completed")
 		return
 	}
-	if sender := h.clients[t.FromID]; sender != nil {
-		if !h.trySend(sender, outFrame{msgType: websocket.TextMessage,
-			data: protocol.MustEncode(protocol.TypeFlowCredit, protocol.FlowCredit{ID: t.ID.String(), N: 1})}) {
-
-			h.failTransfer(t, "sender-backpressure")
+	if h.limits.RelayBytesPerSec > 0 {
+		h.relayTokens -= int64(w.n)
+		if h.relayTokens < 0 {
+			h.starved = append(h.starved, t)
+			return
 		}
+	}
+	h.grantCredit(t)
+}
+
+func (h *Hub) grantCredit(t *Transfer) {
+	sender := h.clients[t.FromID]
+	if sender == nil {
+		return
+	}
+	if !h.trySend(sender, outFrame{msgType: websocket.TextMessage,
+		data: protocol.MustEncode(protocol.TypeFlowCredit, protocol.FlowCredit{ID: t.ID.String(), N: 1})}) {
+
+		h.failTransfer(t, "sender-backpressure")
+	}
+}
+
+// ponytail: the budget refills on the one-second ticker, so a throttled
+// transfer moves in one-second bursts. Upgrade path: a 100ms ticker.
+func (h *Hub) refillRelay() {
+	if h.limits.RelayBytesPerSec == 0 {
+		return
+	}
+	h.relayTokens = min(h.relayTokens+h.limits.RelayBytesPerSec, h.limits.RelayBytesPerSec)
+	for len(h.starved) > 0 && h.relayTokens >= 0 {
+		t := h.starved[0]
+		h.starved = h.starved[1:]
+		if h.transfers[t.ID] != t {
+			continue
+		}
+		h.grantCredit(t)
 	}
 }
 
@@ -585,6 +637,7 @@ func (h *Hub) failTransfer(t *Transfer, reason string) {
 }
 
 func (h *Hub) tick(now time.Time) {
+	h.refillRelay()
 	for _, t := range h.transfers {
 		if t.State == StateOffered && now.After(t.Deadline) {
 			h.failTransfer(t, "offer-timeout")

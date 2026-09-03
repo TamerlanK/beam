@@ -28,6 +28,8 @@ go run ./cmd/beam            # serves on :8080
 ./beam -addr :9000           # custom port
 ./beam -debug                # + pprof on /debug/pprof/
 ./beam -trust-proxy          # honor X-Forwarded-For (only behind a trusted proxy)
+./beam -max-conns-per-ip 8   # cap concurrent sockets per IP (default 32, 0 = unlimited)
+./beam -relay-bps 10000000   # global relay budget in bytes/s (default 0 = unlimited)
 ```
 
 Docker (~15MB image from `scratch`):

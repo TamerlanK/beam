@@ -248,6 +248,7 @@ object) and `to` scrubbed.
 | `rate-limited` | too many room-join attempts from this IP |
 | `unknown-peer` | target peer missing or not in your room |
 | `bad-transfer` | unknown transfer ID or illegal state transition |
+| `too-many-connections` | the per-IP connection cap is reached; the server closes the socket after sending this, so the client must not reconnect |
 
 ## Timing
 

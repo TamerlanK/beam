@@ -208,11 +208,12 @@ type Error struct {
 }
 
 const (
-	ErrCodeBadMessage  = "bad-message"
-	ErrCodeBadCode     = "bad-code"
-	ErrCodeRateLimited = "rate-limited"
-	ErrCodeUnknownPeer = "unknown-peer"
-	ErrCodeBadTransfer = "bad-transfer"
+	ErrCodeBadMessage   = "bad-message"
+	ErrCodeBadCode      = "bad-code"
+	ErrCodeRateLimited  = "rate-limited"
+	ErrCodeUnknownPeer  = "unknown-peer"
+	ErrCodeBadTransfer  = "bad-transfer"
+	ErrCodeTooManyConns = "too-many-connections"
 )
 
 var previewPrefixes = []string{"data:image/jpeg;base64,", "data:image/png;base64,", "data:image/webp;base64,"}

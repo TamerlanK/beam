@@ -24,6 +24,8 @@ type Config struct {
 
 	Contact string
 
+	Limits hub.Limits
+
 	Log *slog.Logger
 }
 
@@ -44,7 +46,7 @@ func New(cfg Config) (*Server, error) {
 		return nil, err
 	}
 
-	s := &Server{cfg: cfg, log: cfg.Log, ln: ln, hub: hub.New(cfg.Log)}
+	s := &Server{cfg: cfg, log: cfg.Log, ln: ln, hub: hub.New(cfg.Log, cfg.Limits)}
 
 	staticFS, err := fs.Sub(web.Static, "static")
 	if err != nil {

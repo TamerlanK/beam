@@ -238,3 +238,28 @@ automatically. Server-side "kick the older connection" was rejected
 because both tabs auto-reconnect and would fight. Web Locks needs a
 secure context, so plain-HTTP LAN deployments fall back to the old
 tab-per-device behaviour; production is behind TLS anyway.
+
+---
+
+## 2026-09-03 — Per-IP connection cap and a global relay budget
+
+**Context.** A public instance has two cheap abuse paths: one address
+opening thousands of sockets, and a handful of transfers saturating the
+operator's uplink. Neither needed a database or an external limiter.
+
+**Decision.** Two hub-level limits, both off when zero. `-max-conns-per-ip`
+(default 32) counts live sockets per IP in `addClient` and rejects the
+overflow with `too-many-connections` before it joins a room; the client
+stops reconnecting on that code. `-relay-bps` is a single token bucket on
+the hub, refilled by the existing one-second ticker and charged in
+`handleWritten` before a flow credit is granted. When the bucket is empty
+the transfer is queued as starved and its credit is released on a later
+tick.
+
+**Consequences.** No frame is ever dropped: credits already bound how many
+bytes a sender may have in flight, so throttling only delays the next
+credit. The cost is granularity — a throttled transfer moves in one-second
+bursts; a 100ms ticker is the upgrade if smoothness matters. The budget is
+global, not per IP, so one heavy sender slows everyone equally; a per-IP
+bucket is the next step if fairness becomes a problem. The cap keys on the
+same IP as room grouping, so behind a proxy it needs `-trust-proxy`.

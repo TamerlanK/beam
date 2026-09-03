@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -423,4 +424,37 @@ func TestPrivacyPageInjectsContact(t *testing.T) {
 	if !strings.Contains(string(body), "ops@example.org") || strings.Contains(string(body), "{{") {
 		t.Fatalf("contact not rendered:\n%s", body)
 	}
+}
+
+func TestMaxConnsPerIPClosesSocket(t *testing.T) {
+	addr, stop := startServer(t, func(c *Config) { c.Limits.MaxConnsPerIP = 1 })
+	defer stop()
+	first := dial(t, addr)
+	defer first.close()
+
+	conn, _, err := websocket.DefaultDialer.Dial("ws://"+addr+"/ws", nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+	start := time.Now()
+	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	_, raw, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("read after %v: %v", time.Since(start), err)
+	}
+	env, err := protocol.Decode(raw)
+	if err != nil || env.Type != protocol.TypeError {
+		t.Fatalf("got %s (%v), want error", env.Type, err)
+	}
+	var e protocol.Error
+	if err := json.Unmarshal(env.Data, &e); err != nil || e.Code != protocol.ErrCodeTooManyConns {
+		t.Fatalf("code = %q, want %s", e.Code, protocol.ErrCodeTooManyConns)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, _, err := conn.ReadMessage(); !websocket.IsCloseError(err, websocket.CloseGoingAway) {
+		t.Fatalf("expected server to close the socket, got %v", err)
+	}
+	first.send(protocol.TypeRoomCreate, nil)
+	first.expect(protocol.TypeRoomCreated)
 }

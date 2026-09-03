@@ -40,6 +40,7 @@ const ERRORS = {
   "rate-limited": "Too many tries. Wait a moment and try again.",
   "unknown-peer": "That device isn't here anymore.",
   "bad-transfer": "That transfer is no longer valid.",
+  "too-many-connections": "Too many devices from your network are connected. Try again later.",
 };
 
 const room = {
@@ -96,6 +97,7 @@ const room = {
   error(d) {
     if (d.code === "bad-code" || d.code === "rate-limited") { joining = null; emit("join-failed"); }
     toast(ERRORS[d.code] || d.message || "Something went wrong", "bad");
+    if (d.code === "too-many-connections") socket.close();
   },
 };
 

@@ -13,6 +13,7 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/TamerlanK/beam/internal/hub"
 	"github.com/TamerlanK/beam/internal/server"
 )
 
@@ -21,6 +22,8 @@ func main() {
 	debug := flag.Bool("debug", false, "enable pprof on /debug/pprof/")
 	logFormat := flag.String("log-format", "text", "log format: text or json")
 	contact := flag.String("contact", "", "operator contact shown on /privacy (email or URL)")
+	maxConns := flag.Int("max-conns-per-ip", 32, "max concurrent websocket connections per IP (0 = unlimited)")
+	relayBPS := flag.Int64("relay-bps", 0, "global relay budget in bytes per second (0 = unlimited)")
 	trustProxy := flag.Bool("trust-proxy", false, "trust X-Forwarded-For for room grouping (only behind a trusted proxy)")
 	flag.Parse()
 
@@ -40,6 +43,7 @@ func main() {
 		Debug:      *debug,
 		TrustProxy: *trustProxy,
 		Contact:    *contact,
+		Limits:     hub.Limits{MaxConnsPerIP: *maxConns, RelayBytesPerSec: *relayBPS},
 		Log:        log,
 	})
 	if err != nil {
