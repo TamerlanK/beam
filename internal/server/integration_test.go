@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -382,5 +384,22 @@ func TestServerShutdownNotifiesActiveTransfers(t *testing.T) {
 	s.unmarshal(env, &tf)
 	if tf.Reason != "server-shutdown" {
 		t.Fatalf("reason = %q, want server-shutdown", tf.Reason)
+	}
+}
+
+func TestSecurityHeaders(t *testing.T) {
+	addr, stop := startServer(t)
+	defer stop()
+	res, err := http.Get("http://" + addr + "/")
+	if err != nil {
+		t.Fatalf("GET /: %v", err)
+	}
+	res.Body.Close()
+	csp := res.Header.Get("Content-Security-Policy")
+	if csp == "" {
+		t.Fatal("missing Content-Security-Policy")
+	}
+	if strings.Contains(csp, "unsafe-inline") {
+		t.Fatalf("CSP allows unsafe-inline: %q", csp)
 	}
 }

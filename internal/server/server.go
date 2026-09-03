@@ -68,7 +68,7 @@ func New(cfg Config) (*Server, error) {
 	}
 
 	s.http = &http.Server{
-		Handler:           mux,
+		Handler:           secure(mux),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	return s, nil
@@ -106,4 +106,16 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	s.log.Info("server stopped")
 	return err
+}
+
+func secure(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'")
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("Referrer-Policy", "same-origin")
+		h.Set("Strict-Transport-Security", "max-age=31536000")
+		next.ServeHTTP(w, r)
+	})
 }

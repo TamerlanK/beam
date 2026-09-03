@@ -639,6 +639,9 @@ body.is-dragging .note-btn { display: none; }
   animation: cell-in var(--slow) var(--spring) both;
   animation-delay: calc(var(--i) * 70ms);
 }
+.code b:nth-child(2) { --i: 1; }
+.code b:nth-child(3) { --i: 2; }
+.code b:nth-child(4) { --i: 3; }
 .code.is-loading b { color: transparent; animation: shimmer 1.2s ease-in-out infinite; animation-delay: calc(var(--i) * 120ms); }
 .qr { background: #fff; border-radius: 12px; padding: 8px; line-height: 0; flex: 0 0 auto; min-width: 112px; min-height: 112px; animation: pop var(--slow) var(--spring) both; }
 .qr svg { width: 96px; height: 96px; display: block; }
