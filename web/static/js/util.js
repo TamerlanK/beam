@@ -15,6 +15,17 @@ export function el(tag, attrs = {}, ...children) {
   return n;
 }
 
+// ponytail: randomUUID needs https; plain http on a LAN address doesn't get it
+export function uuid() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  return bytesToUUID(b);
+}
+
+export function thumb(t) { return t.preview ? el("img", { src: t.preview, alt: "" }) : icon(t.kind); }
+
 export function icon(name, cls = "i") {
   const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   s.setAttribute("viewBox", "0 0 24 24");

@@ -103,6 +103,7 @@ const room = {
 };
 
 const conn = $("connState");
+let warnedDown = false;
 function setConn(onLine) {
   state.connected = onLine;
   conn.dataset.state = onLine ? "on" : "off";
@@ -115,6 +116,7 @@ const socket = createSocket({
   onOpen() { setConn(true); },
   onClose(intentional) {
     const wasUp = state.connected;
+    if (!wasUp && !intentional && !warnedDown) { warnedDown = true; toast(`Can't reach the server at ${location.host}, retrying…`, "bad"); }
     setConn(false);
     state.self = null;
     state.code = null;

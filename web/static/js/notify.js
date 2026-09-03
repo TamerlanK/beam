@@ -4,7 +4,7 @@ import { $ } from "./util.js";
 const baseTitle = document.title;
 const ICON = document.querySelector("link[rel=icon]").href;
 const shown = new Map();
-let audio = null;
+let audio = null, lastChime = 0;
 
 export function initNotify() {
   document.addEventListener("visibilitychange", () => {
@@ -17,15 +17,15 @@ export function initNotify() {
   $("offerAccept").addEventListener("click", askPermission);
 
   on("offers", () => {
-    const pending = new Set(state.offers.map((o) => o.id));
-    for (const [id, n] of shown) if (!pending.has(id)) { n.close(); shown.delete(id); }
-    const d = state.offers[state.offers.length - 1];
-    if (!d || shown.has(d.id) || d.announced) return;
-    d.announced = true;
-    chime();
+    if (!state.offers.length) { const n = shown.get("offers"); if (n) { n.close(); shown.delete("offers"); } return; }
+    const fresh = state.offers.filter((o) => !o.announced);
+    if (!fresh.length) return;
+    for (const o of fresh) o.announced = true;
+    if (performance.now() - lastChime > 1000) { lastChime = performance.now(); chime(); }
     if (!document.hidden) return;
     document.title = "Incoming file · beam";
-    show(d.id, `${d.from ? d.from.name : "Someone"} wants to send you a file`, d.name);
+    const d = state.offers[0], n = state.offers.length;
+    show("offers", `${d.from ? d.from.name : "Someone"} wants to send you ${n > 1 ? `${n} files` : "a file"}`, state.offers.map((o) => o.name).join(", "));
   });
   on("snippet", (d) => {
     chime();

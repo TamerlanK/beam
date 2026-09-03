@@ -3,6 +3,7 @@ package hub
 import (
 	"context"
 	"log/slog"
+	"net"
 	"path"
 	"strings"
 	"time"
@@ -175,6 +176,10 @@ func (h *Hub) addClient(c *Client) {
 	h.conns[c.IP]++
 	h.clients[c.ID] = c
 	key := "ip:" + c.IP
+	// ponytail: self-hosted on a LAN every client has its own private IP; put them all in one room
+	if ip := net.ParseIP(c.IP); ip != nil && (ip.IsPrivate() || ip.IsLoopback()) {
+		key = "ip:lan"
+	}
 	room := h.rooms[key]
 	if room == nil {
 		room = newRoom(key)

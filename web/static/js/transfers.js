@@ -1,5 +1,5 @@
 import { state, emit, on, isDone, peerName, toast } from "./state.js";
-import { uuidBytes, bytesToUUID } from "./util.js";
+import { uuid, uuidBytes, bytesToUUID } from "./util.js";
 import { fileKind } from "./icons.js";
 import { available as e2e, keypair, shared, seal, open } from "./crypto.js";
 import { openSink, saveBlob } from "./sink.js";
@@ -12,6 +12,7 @@ const CHUNK = 64 * 1024;
 const INITIAL_CREDITS = 16;
 export const OFFER_TTL = 30000;
 const RESUME_TTL = 120000;
+const MAX_INFLIGHT = 24; // ponytail: hub refuses more than 32 live transfers per sender
 
 let socket = null;
 const queues = new Map();
@@ -42,15 +43,17 @@ export function queueFiles(peerId, files) {
 
 export function forgetPeer(id) { queues.delete(id); }
 
-async function next(peerId) {
-  for (const t of state.transfers.values()) {
-    if (t.dir === "send" && t.peerId === peerId && !isDone(t)) return;
-  }
+function next(peerId) {
   const q = queues.get(peerId);
   if (!q || !q.length) return;
   if (!state.peers.has(peerId)) { q.length = 0; return; }
-  const file = q.shift();
-  const id = crypto.randomUUID();
+  let live = 0;
+  for (const t of state.transfers.values()) if (t.dir === "send" && !isDone(t)) live++;
+  while (q.length && live++ < MAX_INFLIGHT) offer(peerId, q.shift());
+}
+
+async function offer(peerId, file) {
+  const id = uuid();
   const t = {
     id, idBytes: uuidBytes(id), dir: "send", peerId, link: rtc.linkFor(peerId) || socketLink,
     name: file.name, size: file.size, mime: file.type, kind: fileKind(file.name, file.type),
@@ -62,6 +65,7 @@ async function next(peerId) {
   emit("transfer:add", t);
   const [kp, preview] = await Promise.all([e2e ? keypair().catch(() => null) : null, previewOf(file)]);
   if (kp) { t.priv = kp.priv; t.pub = kp.pub; }
+  t.preview = preview;
   if (t.state !== "offered") return;
   try {
     t.link.send("transfer-offer", { id, to: peerId, name: file.name, size: file.size, mime: file.type, key: t.pub || undefined, preview: preview || undefined });
@@ -177,18 +181,38 @@ async function finishReceive(t) {
   end(t, "done");
 }
 
+function sameSender(a, b) {
+  return a.link === b.link && (a.from ? a.from.id : "") === (b.from ? b.from.id : "");
+}
+
+// Pending offers from the same peer as the first one: answered together.
+export function offerGroup() {
+  const first = state.offers[0];
+  return first ? state.offers.filter((o) => sameSender(o, first)) : [];
+}
+
 export async function answerOffer(accept) {
-  const d = state.offers[0];
-  if (!d || d.answering) return;
+  const group = offerGroup().filter((o) => !o.answering);
+  if (!group.length) return;
   if (!accept) {
-    state.offers.shift();
+    for (const d of group) {
+      state.offers.splice(state.offers.indexOf(d), 1);
+      try { d.link.send("transfer-answer", { id: d.id, accept: false }); } catch {}
+    }
     emit("offers");
-    try { d.link.send("transfer-answer", { id: d.id, accept: false }); } catch {}
     return;
   }
-  d.answering = true;
-  const sink = await openSink(d.name, d.mime || "");
-  if (state.offers[0] !== d) { sink.abort(); return; }
+  for (const d of group) d.answering = true;
+  let dir;
+  if (group.length > 1 && typeof showDirectoryPicker === "function") {
+    try { dir = await showDirectoryPicker({ mode: "readwrite" }); } catch { dir = null; }
+  }
+  for (const d of group) if (state.offers.includes(d)) await acceptOne(d, dir);
+}
+
+async function acceptOne(d, dir) {
+  const sink = await openSink(d.name, d.mime || "", dir);
+  if (!state.offers.includes(d)) { sink.abort(); return; }
   let pub = "", key = null, sas = "";
   if (d.key && e2e) {
     try {
@@ -197,14 +221,14 @@ export async function answerOffer(accept) {
       pub = kp.pub;
     } catch { pub = ""; key = null; sas = ""; }
   }
-  if (state.offers[0] !== d) { sink.abort(); return; }
-  state.offers.shift();
+  if (!state.offers.includes(d)) { sink.abort(); return; }
+  state.offers.splice(state.offers.indexOf(d), 1);
   emit("offers");
   const t = {
     id: d.id, idBytes: uuidBytes(d.id), dir: "recv", peerId: d.from ? d.from.id : "", link: d.link,
-    name: d.name, size: d.size, mime: d.mime || "", kind: fileKind(d.name, d.mime || ""),
+    name: d.name, size: d.size, mime: d.mime || "", kind: d.kind,
     state: "active", bytes: 0, seq: 0, chain: Promise.resolve(), sink, key, sas, pub,
-    samples: [], hist: [], lastPaint: 0, startedAt: performance.now(), note: "", blobUrl: null, saved: false,
+    samples: [], hist: [], lastPaint: 0, startedAt: performance.now(), note: "", blobUrl: null, saved: false, preview: d.preview || "",
   };
   state.transfers.set(d.id, t);
   try { d.link.send("transfer-answer", { id: d.id, accept: true, key: pub || undefined }); } catch { sink.abort(); return end(t, "failed", "connection lost"); }
@@ -346,6 +370,7 @@ export const handlers = {
     d.receivedAt = performance.now();
     d.name = String(d.name || "").split(/[\\/]/).pop().slice(0, 255) || "file";
     d.size = Number(d.size);
+    d.kind = fileKind(d.name, d.mime || "");
     if (!validPreview(d.preview)) delete d.preview;
     if (!(d.size > 0) || !isFinite(d.size)) return;
     const t = state.transfers.get(d.id);

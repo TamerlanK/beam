@@ -1,7 +1,9 @@
-export async function openSink(name, mime) {
-  if (typeof showSaveFilePicker !== "function") return memorySink(name, mime);
+// dir: undefined = ask per file, null = keep in memory, handle = write into that folder
+export async function openSink(name, mime, dir) {
+  if (dir === null || typeof showSaveFilePicker !== "function") return memorySink(name, mime);
   try {
-    const handle = await showSaveFilePicker({ suggestedName: name });
+    // ponytail: same-named files in a batch overwrite each other in the folder
+    const handle = dir ? await dir.getFileHandle(name, { create: true }) : await showSaveFilePicker({ suggestedName: name });
     const w = await handle.createWritable();
     let chain = Promise.resolve();
     return {

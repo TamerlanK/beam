@@ -1,7 +1,6 @@
 import { state, on, emit, toast } from "./state.js";
-import { $, el, icon, fmtSize, asURL, copyText } from "./util.js";
-import { fileKind } from "./icons.js";
-import { answerOffer, OFFER_TTL } from "./transfers.js";
+import { $, el, thumb, fmtSize, copyText } from "./util.js";
+import { answerOffer, offerGroup, OFFER_TTL } from "./transfers.js";
 import { EMOJIS, identity, saveIdentity } from "./identity.js";
 
 const CODE_RE = /^[2-9A-HJ-NP-Z]{4}$/;
@@ -66,24 +65,29 @@ function initOffer() {
   function stop() { clearInterval(tick); tick = null; }
 
   function show() {
-    const d = state.offers[0];
+    const group = offerGroup(), d = group[0];
     if (!d) {
       current = null; stop();
       if (modal.open) modal.close("drained");
       return;
     }
-    queue.hidden = state.offers.length < 2;
-    queue.textContent = `${state.offers.length - 1} more waiting behind this one`;
-    if (current === d) return;
-    current = d;
+    const rest = state.offers.length - group.length;
+    queue.hidden = !rest;
+    queue.textContent = `${rest} more waiting from another device`;
+    const key = group.map((o) => o.id).join();
+    if (current === key) return;
+    current = key;
+    const n = group.length;
     $("offerSender").textContent = d.from ? d.from.name : "Someone";
     $("offerEmoji").textContent = d.from ? d.from.emoji : "📦";
-    $("offerName").textContent = d.name;
-    $("offerSize").textContent = fmtSize(d.size);
-    $("offerIcon").replaceChildren(icon(fileKind(d.name, d.mime || "")));
+    $("offerWhat").textContent = n === 1 ? "a file" : `${n} files · ${fmtSize(group.reduce((s, o) => s + o.size, 0))}`;
+    $("offerAccept").textContent = n === 1 ? "Accept" : "Accept all";
+    $("offerFiles").replaceChildren(...group.map((o) => el("li", { class: "offer-file" },
+      el("span", { class: "tr-icon", "aria-hidden": "true" }, thumb(o)),
+      el("span", {}, el("span", { class: "offer-name", text: o.name }), el("br"), el("span", { class: "offer-size", text: fmtSize(o.size) })))));
     const img = $("offerPreview");
-    img.hidden = !d.preview;
-    if (d.preview) img.src = d.preview; else img.removeAttribute("src");
+    img.hidden = !(n === 1 && d.preview);
+    if (!img.hidden) img.src = d.preview; else img.removeAttribute("src");
     if (!modal.open) modal.showModal();
     $("offerAccept").focus();
     stop();
@@ -195,7 +199,6 @@ const joinURL = (c) => `${location.origin}${location.pathname}#${c}`;
 
 function initNotes() {
   const send = $("snipModal"), text = $("snipText"), count = $("snipCount");
-  const recv = $("snipRecvModal"), recvText = $("snipRecvText"), openLink = $("snipOpen");
   let target = null;
 
   function openSend(p) {
@@ -220,21 +223,5 @@ function initNotes() {
   text.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submit(); });
   $("snipCancel").addEventListener("click", () => send.close());
   $("snipSend").addEventListener("click", submit);
-
-  on("snippet", (d) => {
-    $("snipFrom").textContent = d.from ? d.from.name : "someone";
-    recvText.textContent = d.text;
-    const url = asURL(d.text);
-    openLink.hidden = !url;
-    if (url) openLink.href = url;
-    if (!recv.open) recv.showModal();
-  });
-  $("snipRecvClose").addEventListener("click", () => recv.close());
-  $("snipCopy").addEventListener("click", async () => {
-    await copyText(recvText.textContent);
-    toast("Copied", "ok");
-    recv.close();
-  });
-
   return openSend;
 }

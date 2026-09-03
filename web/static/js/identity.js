@@ -1,3 +1,5 @@
+import { uuid } from "./util.js";
+
 const KEY = "beam:identity";
 
 export const EMOJIS = [
@@ -14,7 +16,7 @@ export function identity() {
   let stored = {};
   try { stored = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch {}
   cached = {
-    id: typeof stored.id === "string" && stored.id ? stored.id : crypto.randomUUID(),
+    id: typeof stored.id === "string" && stored.id ? stored.id : uuid(),
     name: typeof stored.name === "string" ? stored.name : "",
     emoji: typeof stored.emoji === "string" ? stored.emoji : "",
   };

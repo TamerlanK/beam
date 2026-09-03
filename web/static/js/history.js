@@ -1,5 +1,5 @@
 import { state, on, emit, isDone, toast } from "./state.js";
-import { $, el, icon, fmtSize, fmtAgo } from "./util.js";
+import { $, el, icon, thumb, fmtSize, fmtAgo } from "./util.js";
 import { queueFiles } from "./transfers.js";
 import { saveBlob } from "./sink.js";
 
@@ -16,7 +16,7 @@ export function initHistory() {
     if (!isDone(t)) return;
     const peer = state.peers.get(t.peerId);
     entries.unshift({
-      id: t.id, dir: t.dir, name: t.name, size: t.size, kind: t.kind, state: t.state, note: t.note,
+      id: t.id, dir: t.dir, name: t.name, size: t.size, kind: t.kind, state: t.state, note: t.note, preview: t.preview || undefined, // ponytail: ≤40KB each, 50 max; drop from history if localStorage quota bites
       peerId: t.peerId, peerName: peer ? peer.name : "that device", peerEmoji: peer ? peer.emoji : "", at: Date.now(),
     });
     entries.length = Math.min(entries.length, MAX);
@@ -43,7 +43,7 @@ export function initHistory() {
     if (keep && keep.file) act.append(el("button", { class: "btn btn-ghost", type: "button", onclick: () => again(e, keep.file) }, "Send again"));
     if (keep && keep.blobUrl) act.append(el("button", { class: "btn btn-ghost", type: "button", onclick: () => saveBlob({ blobUrl: keep.blobUrl, name: e.name }) }, icon("save"), "Save"));
     return el("li", { class: `tr is-${e.state}` },
-      el("span", { class: "tr-icon" }, icon(e.kind)),
+      el("span", { class: "tr-icon" }, thumb(e)),
       el("span", { class: "tr-name", title: e.name, text: e.name }),
       el("span", { class: "tr-meta", text: `${outcome} · ${who} · ${fmtSize(e.size)} · ${fmtAgo(e.at)}` }),
       act);

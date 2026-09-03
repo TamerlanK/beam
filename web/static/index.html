@@ -86,15 +86,9 @@
 
 <dialog id="offerModal" class="modal offer" aria-labelledby="offerTitle">
   <div id="offerEmoji" class="offer-from" aria-hidden="true"></div>
-  <h2 id="offerTitle" class="modal-title"><b id="offerSender"></b> wants to send you a file</h2>
+  <h2 id="offerTitle" class="modal-title"><b id="offerSender"></b> wants to send you <span id="offerWhat">a file</span></h2>
   <img id="offerPreview" class="offer-preview" alt="" hidden>
-  <div class="offer-file">
-    <span id="offerIcon" class="tr-icon" aria-hidden="true"></span>
-    <span>
-      <span id="offerName" class="offer-name"></span><br>
-      <span id="offerSize" class="offer-size"></span>
-    </span>
-  </div>
+  <ul id="offerFiles" class="offer-files"></ul>
   <div class="modal-actions">
     <button id="offerDecline" class="btn btn-ghost" type="button">Decline</button>
     <button id="offerAccept" class="btn btn-primary" type="button" autofocus>Accept</button>
@@ -164,16 +158,6 @@
   <div class="modal-actions">
     <button id="snipCancel" class="btn btn-ghost" type="button">Cancel</button>
     <button id="snipSend" class="btn btn-primary" type="button">Send note</button>
-  </div>
-</dialog>
-
-<dialog id="snipRecvModal" class="modal" aria-labelledby="snipRecvTitle">
-  <h2 id="snipRecvTitle" class="modal-title">Note from <b id="snipFrom"></b></h2>
-  <pre id="snipRecvText" class="snip-recv" tabindex="0"></pre>
-  <div class="modal-actions">
-    <button id="snipRecvClose" class="btn btn-ghost" type="button">Close</button>
-    <a id="snipOpen" class="btn btn-ghost" target="_blank" rel="noopener noreferrer" hidden>Open link</a>
-    <button id="snipCopy" class="btn btn-primary" type="button">Copy</button>
   </div>
 </dialog>
 
