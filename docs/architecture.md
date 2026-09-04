@@ -24,7 +24,7 @@ flowchart TB
 ```
 
 **The ownership rule:** every map the hub holds — clients, rooms, codes,
-transfers, rate-limit buckets — is touched *only* by the hub goroutine.
+transfers, drops, rate-limit buckets — is touched *only* by the hub goroutine.
 Other goroutines communicate exclusively through channels
 (`register`/`unregister`/`inbound`/`written`). There are no mutexes and no
 lock-ordering to reason about; `go test -race` has nothing to find by

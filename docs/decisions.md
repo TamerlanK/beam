@@ -4,6 +4,36 @@ ADR-style log. Each entry: context → decision → consequences.
 
 ---
 
+## 2026-09-04 — Drops: the server may hold ciphertext, briefly
+
+**Context.** Every transfer needed both browsers open at the same moment.
+Phones kill background sockets, people step away, and "send it to my
+phone in the other room" fell back to email. Perkoon-style queuing keeps
+the sender's tab open; Wormhole-style cloud fallback writes to disk.
+
+**Decision.** A *drop* is a sealed file the hub keeps in memory until the
+addressee picks it up or a TTL reaps it. The sender seals chunks exactly
+as for a live transfer; the key is agreed against the addressee's
+long-lived device public key (published with its presence) or, for a
+link, generated at random and carried only in the URL fragment. The hub
+stores frames as received and replays them through the same credit-paced
+`writePump` path, so a pickup is just a transfer whose sender is the hub.
+Bounded by `-drop-max` per drop, 16 per IP, `-drop-budget` overall and
+`-drop-ttl`; one pickup, then gone; partial uploads die with their sender.
+
+**Consequences.** The sender can close the tab and the receiver can arrive
+late, and the relay still never sees plaintext or touches disk. The
+privacy page now has to say the server holds ciphertext for minutes, and
+an operator who wants the old posture sets `-drop-max 0`. A relay that
+lies about a device's public key could read a device-addressed drop; the
+live-transfer verification code does not exist here because the sender is
+gone, so the link form (key never reaches the server) is the honest
+answer to a hostile relay. Device keys live in IndexedDB as
+non-extractable `CryptoKey`s; clearing site data makes older drops to that
+device undecryptable, which the receiver sees as an integrity failure.
+
+---
+
 ## 2026-09-01 — Server relay over WebRTC P2P
 
 **Context.** Browser-to-browser file transfer can go peer-to-peer (WebRTC

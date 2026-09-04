@@ -18,7 +18,8 @@
 - **One device, one presence** — extra tabs in the same browser wait behind a gate instead of showing up as duplicate devices; "Use this tab instead" hands the connection over, unless the other tab is mid-transfer
 - **Previews, staging, live graphs** — images and PDFs show a thumbnail in the accept prompt before a byte is transferred; drop files anywhere to stage them and pick the device after; every transfer row plots its throughput
 - **Text snippets** — send a link or note; the receiver gets a copy-to-clipboard card
-- **Ephemeral by design** — no database, no server-side storage, nothing written to disk, identities last one session
+- **Drops: leave it for later** — when the other device doesn't answer, "Leave for later" hands the sealed file to the server, which holds it in memory (never on disk) for 10 minutes and delivers it whenever that device shows up, even after you close your tab. "Get a link" does the same for anyone: the key rides in the URL fragment, so the server can't read it either. Capped per drop, per address and globally; off with `-drop-max 0`
+- **Ephemeral by design** — no database, no server-side storage, nothing written to disk; a drop is the one thing the server holds, as ciphertext, in RAM, for minutes
 - **One binary** — the vanilla HTML/CSS/JS frontend is embedded with `embed.FS`; `./beam` is the whole deployment
 
 ## Quickstart
@@ -30,6 +31,8 @@ go run ./cmd/beam            # serves on :8080
 ./beam -trust-proxy          # honor X-Forwarded-For (only behind a trusted proxy)
 ./beam -max-conns-per-ip 8   # cap concurrent sockets per IP (default 32, 0 = unlimited)
 ./beam -relay-bps 10000000   # global relay budget in bytes/s (default 0 = unlimited)
+./beam -drop-max 0           # disable drops; default holds up to 200MB per drop
+./beam -drop-budget 1073741824 -drop-ttl 10m   # total held ciphertext and pickup window
 ```
 
 Docker (~15MB image from `scratch`):
@@ -77,6 +80,7 @@ Recorded as dated ADRs in [docs/decisions.md](docs/decisions.md). The big ones:
 - **Receiver streams to disk where the browser allows it** — File System Access on Chromium, in-memory Blob elsewhere. See [docs/streaming.md](docs/streaming.md).
 - **Rooms keyed by public IP** — same-NAT devices find each other with zero configuration; devices behind carrier-grade NAT may see strangers, which is why every transfer needs an explicit accept.
 - **Sender-generated transfer UUIDs** — lets the sender start streaming immediately on acceptance without an ID round trip; the server validates format and uniqueness.
+- **Drops hold ciphertext only** — the first and only time the server keeps user bytes: sealed to the addressee's long-lived device key (or to a random key that lives in the link's fragment), bounded by size, count, budget and TTL, and gone after one pickup.
 
 ## Development
 
@@ -89,6 +93,6 @@ make loadtest    # 200 clients, 50 rooms, 25 concurrent 20MB transfers
 
 ## Future work
 
-- Resumable transfers (chunk index is already explicit in the protocol)
+- Resumable transfers across reloads (a dropped link already resumes; a closed tab does not)
 - TURN support for symmetric-NAT pairs that currently fall back to the relay
 - Streaming receive on Firefox and Safari via a service-worker download stream

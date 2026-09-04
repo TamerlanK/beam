@@ -238,6 +238,108 @@ over the channel using the same envelopes and frames, and the server sees
 nothing but the signaling. Transfers fall back to the relay whenever no
 channel is open.
 
+## Drops
+
+A drop is a sealed file the server holds in memory until it is picked up,
+for at most `-drop-ttl` (default 10 min). It is addressed either to one
+device (`to`, the persisted device id) or to anyone holding the link
+(`to` omitted). Wire size is always `size + 16 * ceil(size / 64KB)`: the
+client seals every chunk, and the server assumes so. The server holds
+frames exactly as received and replays them; it never has a key.
+
+`room-state` advertises `"drops": {"maxBytes": N, "ttl": S}` when drops are
+enabled. A device that can receive drops publishes a long-lived ECDH
+public key as `pub` on its `/ws` URL; peers see it on the peer object.
+
+### `drop-create` (C→S)
+
+```json
+{"v":1,"type":"drop-create","data":{
+  "id":"7f3a…","to":"a1b2…","name":"report.pdf","size":4194304,"mime":"application/pdf",
+  "key":"BGx1…","preview":"data:image/jpeg;base64,…"
+}}
+```
+
+Same validation as an offer, plus: `0 < size ≤ maxBytes`, at most 16
+drops per IP, and the global `-drop-budget`. `key` is the creator's
+ephemeral public key for a device drop (the addressee derives the AES key
+from it and its own private key); a link drop carries no key at all.
+Errors use code `bad-drop`. Reply:
+
+### `drop-created` (S→C)
+
+```json
+{"v":1,"type":"drop-created","data":{"id":"7f3a…","expiresIn":600}}
+```
+
+The creator then streams binary frames under the drop id with the usual
+16-chunk window; the server answers each stored chunk with `flow-credit`
+(subject to the relay budget). Overflowing the declared size deletes the
+drop with an error. If the creator disconnects before the last chunk the
+drop is deleted.
+
+### `drop-stored` (S→C)
+
+```json
+{"v":1,"type":"drop-stored","data":{"id":"7f3a…","expiresIn":600}}
+```
+
+The drop is held; the creator may leave. The TTL restarts here.
+
+### `drop-waiting` (S→C)
+
+```json
+{"v":1,"type":"drop-waiting","data":{
+  "id":"7f3a…","from":{"id":"4c9f…","name":"Purple Falcon","emoji":"🦅","device":"laptop"},
+  "name":"report.pdf","size":4194304,"mime":"application/pdf","key":"BGx1…","expiresIn":583,"anyone":false
+}}
+```
+
+Sent to the addressee when the upload completes, again every time the
+addressee connects while the drop is held, and after a failed pickup.
+`anyone: true` marks a link drop (sent only in reply to `drop-claim`).
+
+### `drop-claim` (C→S)
+
+```json
+{"v":1,"type":"drop-claim","data":{"id":"7f3a…"}}
+```
+
+Asks for the `drop-waiting` of a link drop (or of a drop addressed to the
+caller). Rate-limited with the room-join bucket. Unknown, consumed, or
+otherwise-addressed ids return `bad-drop`.
+
+### `drop-accept` (C→S)
+
+```json
+{"v":1,"type":"drop-accept","data":{"id":"7f3a…","offset":0}}
+```
+
+Starts the pickup: the server pushes stored frames to the caller with the
+credit-on-write pacing of a relay and finishes with `transfer-complete`.
+Only the addressee (or anyone, for a link drop) may accept; a drop being
+picked up by someone else returns `bad-drop`. `offset` resumes a pickup
+that broke off (chunk-aligned, below `size`). A pickup that fails leaves
+the drop held; a completed one deletes it.
+
+### `drop-cancel` (C→S)
+
+```json
+{"v":1,"type":"drop-cancel","data":{"id":"7f3a…"}}
+```
+
+Deletes the drop. Allowed for the creator, the addressee (a decline), and
+anyone for a link drop. A pickup in progress fails with `canceled`.
+
+### `drop-gone` (S→C)
+
+```json
+{"v":1,"type":"drop-gone","data":{"id":"7f3a…","reason":"picked-up"}}
+```
+
+Sent to the creator and the addressee when connected. Reasons:
+`picked-up`, `expired`, `canceled`, `sender-disconnected`, `protocol violation`.
+
 ## Snippets
 
 ### `snippet` (C→S, forwarded S→C)
@@ -266,6 +368,7 @@ object) and `to` scrubbed.
 | `bad-transfer` | unknown transfer ID or illegal state transition |
 | `too-many-connections` | the per-IP connection cap is reached; the server closes the socket after sending this, so the client must not reconnect |
 | `replaced` | the same device id connected again; this older socket is closed and the client must not reconnect |
+| `bad-drop` | drops disabled, over a cap, unknown or consumed drop, or not its addressee; the message says which |
 
 ## Timing
 
@@ -276,3 +379,4 @@ object) and `to` scrubbed.
 | socket write deadline | 10s |
 | offer timeout | 30s |
 | room-code idle TTL | 10 min |
+| drop pickup window | 10 min (`-drop-ttl`), restarted when the upload completes |
