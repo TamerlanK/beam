@@ -561,6 +561,10 @@ body.is-dragging .note-btn { display: none; }
 .tr.is-waiting .tr-bar i { width: 30%; animation: slide 1.2s ease-in-out infinite; }
 .tr.is-done .tr-bar, .tr.is-failed .tr-bar { display: none; }
 .tr.is-paused .tr-meta { color: var(--muted); }
+.tr.is-missed .tr-meta { color: var(--muted); }
+.tr.is-missed .tr-bar { display: none; }
+.link-input { flex: 1; min-width: 0; height: 44px; padding: 0 12px; font: 500 12.5px var(--mono); background: var(--surface-2); color: var(--ink); border: 1px solid var(--edge-2); border-radius: 12px; text-overflow: ellipsis; }
+.link-input:focus { outline: 0; border-color: var(--beam); box-shadow: 0 0 0 4px var(--beam-20); }
 .tr.is-paused .tr-bar i { background: var(--muted); }
 
 .modal {

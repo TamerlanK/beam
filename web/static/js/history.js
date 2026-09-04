@@ -13,11 +13,11 @@ export function initHistory() {
   const modal = $("historyModal"), list = $("historyList"), empty = $("historyEmpty"), clear = $("historyClear");
 
   on("transfer:state", (t) => {
-    if (!isDone(t)) return;
+    if (!isDone(t) || t.state === "missed" || entries.some((e) => e.id === t.id)) return;
     const peer = state.peers.get(t.peerId);
     entries.unshift({
       id: t.id, dir: t.dir, name: t.name, size: t.size, kind: t.kind, state: t.state, note: t.note, preview: t.preview || undefined, // ponytail: ≤40KB each, 50 max; drop from history if localStorage quota bites
-      peerId: t.peerId, peerName: peer ? peer.name : "that device", peerEmoji: peer ? peer.emoji : "", at: Date.now(),
+      peerId: t.peerId, peerName: peer ? peer.name : t.peerName || "that device", peerEmoji: peer ? peer.emoji : "", at: Date.now(), drop: !!t.drop,
     });
     entries.length = Math.min(entries.length, MAX);
     save();
@@ -38,7 +38,7 @@ export function initHistory() {
   function row(e) {
     const keep = live.get(e.id);
     const who = `${e.dir === "send" ? "To" : "From"} ${e.peerName}${e.peerEmoji ? " " + e.peerEmoji : ""}`;
-    const outcome = e.state === "done" ? (e.dir === "send" ? "Sent" : "Received") : e.note ? e.note[0].toUpperCase() + e.note.slice(1) : "Failed";
+    const outcome = e.state === "done" ? (e.dir === "send" ? (e.drop ? "Left" : "Sent") : "Received") : e.note ? e.note[0].toUpperCase() + e.note.slice(1) : "Failed";
     const act = el("span", { class: "tr-act" });
     if (keep && keep.file) act.append(el("button", { class: "btn btn-ghost", type: "button", onclick: () => again(e, keep.file) }, "Send again"));
     if (keep && keep.blobUrl) act.append(el("button", { class: "btn btn-ghost", type: "button", onclick: () => saveBlob({ blobUrl: keep.blobUrl, name: e.name }) }, icon("save"), "Save"));

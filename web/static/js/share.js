@@ -1,6 +1,7 @@
 import { state, emit, on, toast } from "./state.js";
 import { $ } from "./util.js";
-import { queueFiles } from "./transfers.js";
+import { queueFiles, leaveLink } from "./transfers.js";
+import { fits } from "./drops.js";
 
 const CACHE = "beam-share";
 let socket;
@@ -8,6 +9,12 @@ let socket;
 export async function initShare(s) {
   socket = s;
   $("shareCancel").addEventListener("click", () => setShared(null));
+  $("shareLink").addEventListener("click", () => {
+    const v = state.shared;
+    if (!v || v.files.length !== 1) return;
+    leaveLink(v.files[0]);
+    setShared(null);
+  });
   on("peers", () => { if (state.shared) setShared(state.shared); });
   if (!("caches" in window) || !new URLSearchParams(location.search).has("share")) return;
   history.replaceState(null, "", location.pathname);
@@ -31,6 +38,7 @@ function setShared(v) {
   const n = v.files.length;
   $("shareWhat").textContent = n === 0 ? "a note" : n === 1 ? v.files[0].name : `${v.files[0].name} and ${n - 1} more`;
   $("shareVerb").textContent = state.peers.size ? "Tap a device to send" : "Waiting for a device to send";
+  $("shareLink").hidden = !(n === 1 && fits(v.files[0].size));
   emit("layout");
 }
 

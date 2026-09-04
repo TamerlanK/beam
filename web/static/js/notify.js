@@ -25,7 +25,7 @@ export function initNotify() {
     if (!document.hidden) return;
     document.title = "Incoming file · beam";
     const d = state.offers[0], n = state.offers.length;
-    show("offers", `${d.from ? d.from.name : "Someone"} wants to send you ${n > 1 ? `${n} files` : "a file"}`, state.offers.map((o) => o.name).join(", "));
+    show("offers", `${d.from ? d.from.name : "Someone"} ${d.drop ? "left you" : "wants to send you"} ${n > 1 ? `${n} files` : "a file"}`, state.offers.map((o) => o.name).join(", "));
   });
   on("snippet", (d) => {
     chime();

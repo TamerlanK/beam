@@ -1,6 +1,7 @@
 import { state, on, emit, isDone, peerName } from "./state.js";
 import { $, el, icon, thumb, fmtSize, fmtRate, fmtLeft } from "./util.js";
-import { rateOf, etaOf, cancel, saveBlob } from "./transfers.js";
+import { rateOf, etaOf, cancel, saveBlob, canLeave, leaveFor, dismiss } from "./transfers.js";
+import { ttlText } from "./drops.js";
 
 const mobile = matchMedia("(max-width: 640px)");
 const rows = new Map();
@@ -46,7 +47,7 @@ function addRow(t) {
 function updateRow(t) {
   const li = rows.get(t.id);
   if (!li) return;
-  const who = peerName(t.peerId);
+  const who = t.peerName || peerName(t.peerId);
   const meta = li.querySelector(".tr-meta");
   const act = li.querySelector(".tr-act");
   const fill = li.querySelector(".tr-bar i");
@@ -57,12 +58,19 @@ function updateRow(t) {
 
   switch (t.state) {
     case "offered":
-      meta.textContent = `Waiting for ${who} to accept`;
+      meta.textContent = t.drop ? "Setting up the drop…" : `Waiting for ${who} to accept`;
+      if (canLeave(t)) act.append(leaveBtn(t));
       act.append(cancelBtn(t));
+      break;
+    case "missed":
+      meta.textContent = `No answer from ${who}`;
+      if (canLeave(t)) act.append(leaveBtn(t));
+      act.append(el("button", { class: "btn btn-ghost btn-icon", type: "button", "aria-label": "Dismiss", title: "Dismiss", onclick: () => dismiss(t) }, icon("x")));
       break;
     case "active": {
       const rate = fmtRate(rateOf(t)), left = fmtLeft(etaOf(t));
-      const parts = [`${t.dir === "send" ? "To" : "From"} ${who}`, `${fmtSize(t.bytes)} of ${fmtSize(t.size)}`];
+      const head = t.drop && t.dir === "send" ? (t.drop === "link" ? "Uploading for the link" : `Leaving for ${who}`) : `${t.dir === "send" ? "To" : "From"} ${who}`;
+      const parts = [head, `${fmtSize(t.bytes)} of ${fmtSize(t.size)}`];
       if (rate) parts.push(rate);
       if (left) parts.push(left);
       meta.textContent = parts.join(" · ");
@@ -76,6 +84,14 @@ function updateRow(t) {
       act.append(cancelBtn(t));
       break;
     case "done":
+      if (t.drop && t.dir === "send") {
+        meta.textContent = t.note === "picked-up" ? `Picked up${t.drop === "link" ? "" : ` by ${who}`}`
+          : t.note === "expired" ? "Expired before pickup"
+          : t.note === "canceled" ? (t.drop === "link" ? "Declined" : `Declined by ${who}`)
+          : t.drop === "link" ? `Link ready · one pickup within ${ttlText(t.ttl)}` : `Left for ${who} · they have ${ttlText(t.ttl)}`;
+        if (t.drop === "link" && !t.note) act.append(el("button", { class: "btn btn-ghost", type: "button", onclick: () => emit("drop:link", t) }, icon("copy"), "Show link"));
+        break;
+      }
       meta.textContent = t.dir === "send" ? `Sent to ${who}` : t.saved ? "Saved" : "Saved to your downloads";
       if (t.blobUrl) act.append(el("button", { class: "btn btn-ghost", type: "button", onclick: () => saveBlob(t) }, icon("save"), "Save again"));
       break;
@@ -91,6 +107,10 @@ function graph(svg, hist) {
   const pts = hist.map((v, i) => `${((i / (hist.length - 1)) * 100).toFixed(1)},${(23 - (v / max) * 21).toFixed(1)}`).join(" ");
   svg.querySelector("polyline").setAttribute("points", pts);
   svg.querySelector("polygon").setAttribute("points", `0,24 ${pts} 100,24`);
+}
+
+function leaveBtn(t) {
+  return el("button", { class: "btn btn-ghost", type: "button", title: "Let the server hold it until they pick it up", onclick: () => leaveFor(t) }, icon("clock"), "Leave for later");
 }
 
 function cancelBtn(t) {

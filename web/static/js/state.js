@@ -7,6 +7,7 @@ export const state = {
   transfers: new Map(),
   offers: [],
   shared: null,
+  drops: null,
 };
 
 const bus = new EventTarget();
@@ -24,6 +25,6 @@ export function peerName(id) {
   return p ? p.name : "that device";
 }
 
-export const isDone = (t) => t.state === "done" || t.state === "failed" || t.state === "declined";
+export const isDone = (t) => t.state === "done" || t.state === "failed" || t.state === "declined" || t.state === "missed";
 
 export const toast = (msg, kind = "info") => emit("toast", { msg, kind });

@@ -55,6 +55,7 @@
 
       <div id="shareBar" class="share-bar" role="status" hidden>
         <span><span id="shareVerb">Tap a device to send</span> <b id="shareWhat"></b></span>
+        <button id="shareLink" class="btn btn-ghost" type="button" hidden title="Leave it on the server for anyone with the link to pick up once">Get a link</button>
         <button id="shareCancel" class="btn btn-ghost" type="button">Cancel</button>
       </div>
 
@@ -86,7 +87,7 @@
 
 <dialog id="offerModal" class="modal offer" aria-labelledby="offerTitle">
   <div id="offerEmoji" class="offer-from" aria-hidden="true"></div>
-  <h2 id="offerTitle" class="modal-title"><b id="offerSender"></b> wants to send you <span id="offerWhat">a file</span></h2>
+  <h2 id="offerTitle" class="modal-title"><b id="offerSender"></b> <span id="offerVerb">wants to send you</span> <span id="offerWhat">a file</span></h2>
   <img id="offerPreview" class="offer-preview" alt="" hidden>
   <ul id="offerFiles" class="offer-files"></ul>
   <div class="modal-actions">
@@ -118,6 +119,25 @@
     <button class="btn btn-primary" type="submit">Join</button>
   </form>
   <button id="netClose" class="modal-x" type="button" aria-label="Close">
+    <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+  </button>
+</dialog>
+
+<dialog id="dropModal" class="modal" aria-labelledby="dropTitle">
+  <h2 id="dropTitle" class="modal-title">Link ready for <b id="dropLinkName"></b></h2>
+  <p class="modal-lead">Anyone with this link can pick the file up once, within <b id="dropLinkTTL"></b>. The key is in the link itself and never reaches the server, so share it the way you would share the file.</p>
+  <div class="code-block">
+    <input id="dropLinkInput" class="link-input" readonly aria-label="Pickup link" spellcheck="false">
+    <div id="dropLinkQr" class="qr" role="img" aria-label="QR code of the pickup link"></div>
+  </div>
+  <div class="modal-actions">
+    <button id="dropLinkShare" class="btn btn-ghost" type="button" hidden>Share…</button>
+    <button id="dropLinkCopy" class="btn btn-primary" type="button">
+      <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 9h10v10H9zM5 15V5h10"/></svg>
+      Copy link
+    </button>
+  </div>
+  <button id="dropLinkClose" class="modal-x" type="button" aria-label="Close">
     <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
   </button>
 </dialog>

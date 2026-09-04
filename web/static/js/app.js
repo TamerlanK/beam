@@ -12,6 +12,7 @@ import { initHistory } from "./history.js";
 import { initRTC, onSignal, reset as resetRTC } from "./rtc.js";
 import { initShare } from "./share.js";
 import { initTabs, takeover, isLeader, debug as tabsDebug } from "./tabs.js";
+import { initDrops, device, parseLink, remember } from "./drops.js";
 
 const root = document.documentElement;
 const themeBtn = $("themeBtn");
@@ -31,8 +32,10 @@ if (coarsePointer.matches) $("selfHint").textContent = "Tap a device to send it 
 
 let hashCode = null;
 let joining = null;
+let claim = parseLink(location.hash);
 const m = location.hash.slice(1).toUpperCase().match(/^[2-9A-HJ-NP-Z]{4}$/);
-if (m) { hashCode = m[0]; history.replaceState(null, "", location.pathname); }
+if (m) hashCode = m[0];
+if (m || claim) history.replaceState(null, "", location.pathname);
 on("joining", (c) => { joining = c; });
 
 const ERRORS = {
@@ -47,6 +50,7 @@ const ERRORS = {
 const room = {
   "room-state"(d) {
     state.self = d.self;
+    state.drops = d.drops && d.drops.maxBytes > 0 ? d.drops : null;
     if (!identity().name || !identity().emoji) saveIdentity({ name: d.self.name, emoji: d.self.emoji });
     state.peers.clear();
     for (const p of d.peers || []) state.peers.set(p.id, p);
@@ -62,6 +66,11 @@ const room = {
       joining = hashCode;
       hashCode = null;
       socket.send("room-join", { code: joining });
+    }
+    if (claim) {
+      remember(claim.id, claim.secret);
+      socket.send("drop-claim", { id: claim.id });
+      claim = null;
     }
   },
   "peer-joined"(p) {
@@ -112,7 +121,7 @@ function setConn(onLine) {
 }
 
 const socket = createSocket({
-  params: () => identity(),
+  params: () => (device ? { ...identity(), pub: device.pub } : identity()),
   onOpen() { setConn(true); },
   onClose(intentional) {
     const wasUp = state.connected;
@@ -141,6 +150,7 @@ on("self", () => {
   $("selfEmoji").textContent = state.self.emoji;
 });
 
+await initDrops();
 initToasts();
 initNotify();
 initHistory();

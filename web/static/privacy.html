@@ -31,12 +31,15 @@
     <p>When you offer an image or PDF, your browser may attach a small thumbnail so the receiver can see it before accepting. That thumbnail passes through the server <b>unencrypted</b>. Only the file chunks themselves are end-to-end encrypted, with a key the server never has. A relayed transfer then forwards ciphertext the server cannot read.</p>
     <p>Encryption needs the Web Crypto API on both devices, which browsers only expose on HTTPS or localhost. If either side lacks it, or the key exchange fails, the transfer falls back to <b>plaintext</b> and a relay server can read the chunks. An encrypted transfer shows a lock and a short code in its row. Compare that code on both devices to check that nobody sits in between.</p>
 
+    <h2>Drops</h2>
+    <p>When you choose <b>Leave for later</b> or <b>Get a link</b>, your browser encrypts the file and hands the ciphertext to this server, which keeps it <b>in memory only</b> until the other device picks it up or the pickup window (normally 10 minutes) runs out, whichever comes first. One pickup, then it is gone. The server never has the key: for a device it is agreed with that device's own key, and for a link it lives in the part of the link after <span class="mono">#</span>, which browsers never send to any server. A drop's name, size, type, and preview thumbnail are visible to the server like those of any transfer. The operator can turn drops off.</p>
+
     <h2>Logs</h2>
     <p>The server writes structured logs to its standard error stream. They contain client IDs, display names, IP addresses, file names and sizes, and connection events. They do not contain file contents.</p>
     <p>The software does not store logs itself. How long they are kept is decided by the operator of this instance, not by beam. Ask the contact below for their retention period.</p>
 
     <h2>Nothing on disk, no cookies</h2>
-    <p>The server writes nothing to disk and sets no cookies. Your device identity (a random ID, name, and emoji), your theme choice, and your transfer history live in your browser's local storage. Clearing site data removes them.</p>
+    <p>The server writes nothing to disk and sets no cookies. Your device identity (a random ID, name, and emoji), your theme choice, and your transfer history live in your browser's local storage; the key other devices use to leave you drops lives in its IndexedDB. Clearing site data removes them all.</p>
 
     <h2>Direct transfers</h2>
     <p>When two devices connect directly, each browser asks Google's STUN server (<span class="mono">stun.l.google.com</span>) for its public address. Google sees your IP address in that request and nothing else. If a direct connection fails, the transfer is relayed through this server.</p>

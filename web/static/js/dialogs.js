@@ -2,6 +2,7 @@ import { state, on, emit, toast } from "./state.js";
 import { $, el, thumb, fmtSize, copyText } from "./util.js";
 import { answerOffer, offerGroup, OFFER_TTL } from "./transfers.js";
 import { EMOJIS, identity, saveIdentity } from "./identity.js";
+import { linkFor, ttlText } from "./drops.js";
 
 const CODE_RE = /^[2-9A-HJ-NP-Z]{4}$/;
 let socket;
@@ -11,7 +12,34 @@ export function initDialogs(s) {
   initOffer();
   initConnect();
   initProfile();
+  initDropLink();
   return { openNote: initNotes() };
+}
+
+function initDropLink() {
+  const modal = $("dropModal"), input = $("dropLinkInput"), qr = $("dropLinkQr"), share = $("dropLinkShare");
+  let url = "";
+  share.hidden = typeof navigator.share !== "function";
+
+  on("drop:link", (t) => {
+    url = linkFor(t.id, t.secret);
+    $("dropLinkName").textContent = t.name;
+    $("dropLinkTTL").textContent = ttlText(t.ttl);
+    input.value = url;
+    qr.replaceChildren();
+    try {
+      const q = qrcode(0, "M");
+      q.addData(url);
+      q.make();
+      qr.innerHTML = q.createSvgTag({ cellSize: 4, margin: 0 });
+    } catch { qr.textContent = url; }
+    if (!modal.open) modal.showModal();
+    $("dropLinkCopy").focus();
+  });
+  $("dropLinkCopy").addEventListener("click", async () => { await copyText(url); toast("Link copied", "ok"); });
+  share.addEventListener("click", () => navigator.share({ url }).catch(() => {}));
+  input.addEventListener("focus", () => input.select());
+  $("dropLinkClose").addEventListener("click", () => modal.close());
 }
 
 function initProfile() {
@@ -79,6 +107,7 @@ function initOffer() {
     current = key;
     const n = group.length;
     $("offerSender").textContent = d.from ? d.from.name : "Someone";
+    $("offerVerb").textContent = d.drop ? "left you" : "wants to send you";
     $("offerEmoji").textContent = d.from ? d.from.emoji : "📦";
     $("offerWhat").textContent = n === 1 ? "a file" : `${n} files · ${fmtSize(group.reduce((s, o) => s + o.size, 0))}`;
     $("offerAccept").textContent = n === 1 ? "Accept" : "Accept all";
@@ -92,9 +121,11 @@ function initOffer() {
     $("offerAccept").focus();
     stop();
     const paint = () => {
-      const ms = Math.max(0, OFFER_TTL - (performance.now() - d.receivedAt));
-      timer.style.setProperty("--left", (ms / OFFER_TTL).toFixed(3));
-      left.textContent = `${Math.ceil(ms / 1000)}s`;
+      const ttl = d.ttl || OFFER_TTL;
+      const ms = Math.max(0, ttl - (performance.now() - d.receivedAt));
+      timer.style.setProperty("--left", (ms / ttl).toFixed(3));
+      const s = Math.ceil(ms / 1000);
+      left.textContent = s >= 60 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}` : `${s}s`;
     };
     paint();
     tick = setInterval(paint, 250);
