@@ -458,3 +458,110 @@ func TestMaxConnsPerIPClosesSocket(t *testing.T) {
 	first.send(protocol.TypeRoomCreate, nil)
 	first.expect(protocol.TypeRoomCreated)
 }
+
+// TestDropSurvivesSenderAndReceiverLeaving is the async drop box end to end:
+// A leaves a file for B while B is away, A disconnects, B comes back with the
+// same device id and picks it up byte-for-byte.
+func TestDropSurvivesSenderAndReceiverLeaving(t *testing.T) {
+	addr, stop := startServer(t, func(c *Config) {
+		c.Limits.MaxDropBytes = 8 << 20
+		c.Limits.DropTTL = time.Minute
+	})
+	defer stop()
+
+	bID := uuid.NewString()
+	dialAs := func(id string) *wsClient {
+		t.Helper()
+		conn, _, err := websocket.DefaultDialer.Dial("ws://"+addr+"/ws?id="+id, nil)
+		if err != nil {
+			t.Fatalf("dial: %v", err)
+		}
+		c := &wsClient{t: t, conn: conn}
+		var rs protocol.RoomState
+		c.unmarshal(c.expect(protocol.TypeRoomState), &rs)
+		c.self = rs.Self
+		if rs.Drops == nil || rs.Drops.MaxBytes != 8<<20 {
+			t.Fatalf("room-state drops = %+v", rs.Drops)
+		}
+		return c
+	}
+
+	a := dial(t, addr)
+	b := dialAs(bID)
+	a.expect(protocol.TypePeerJoined)
+
+	payload := randomPayload(t, 3<<20+77)
+	want := sha256.Sum256(payload)
+	id := uuid.New()
+	a.send(protocol.TypeDropCreate, protocol.DropCreate{ID: id.String(), To: bID, Name: "later.bin", Size: int64(len(payload)), Key: "PUB"})
+	a.expect(protocol.TypeDropCreated)
+	b.close()
+	a.expect(protocol.TypePeerLeft)
+
+	// The wire carries one 16-byte tag per chunk; the test pads chunks the same way.
+	sealed := make([]byte, 0, protocol.WireSize(int64(len(payload))))
+	for off := 0; off < len(payload); off += protocol.ChunkSize {
+		end := min(off+protocol.ChunkSize, len(payload))
+		sealed = append(sealed, payload[off:end]...)
+		sealed = append(sealed, make([]byte, protocol.TagBytes)...)
+	}
+	window := protocol.CreditWindow
+	buf := make([]byte, protocol.MaxFrameSize)
+	for off := 0; off < len(sealed); {
+		if window == 0 {
+			env, _ := a.next(10 * time.Second)
+			if env.Type == protocol.TypeError {
+				t.Fatalf("upload: %s", env.Data)
+			}
+			if env.Type == protocol.TypeFlowCredit {
+				window++
+			}
+			continue
+		}
+		end := min(off+protocol.ChunkSize+protocol.TagBytes, len(sealed))
+		if err := a.conn.WriteMessage(websocket.BinaryMessage, protocol.EncodeFrame(buf, id, sealed[off:end])); err != nil {
+			t.Fatal(err)
+		}
+		window--
+		off = end
+	}
+	a.expect(protocol.TypeDropStored)
+	a.close()
+
+	b = dialAs(bID)
+	defer b.close()
+	var w protocol.DropWaiting
+	b.unmarshal(b.expect(protocol.TypeDropWaiting), &w)
+	if w.ID != id.String() || w.Name != "later.bin" || w.Key != "PUB" || w.Size != int64(len(payload)) || w.From == nil || w.From.ID != a.self.ID {
+		t.Fatalf("drop-waiting = %+v", w)
+	}
+	b.send(protocol.TypeDropAccept, protocol.DropAccept{ID: w.ID})
+	h := sha256.New()
+	var got int
+	for {
+		env, frame := b.next(30 * time.Second)
+		if frame != nil {
+			fid, chunk, err := protocol.SplitFrame(frame)
+			if err != nil || fid != id {
+				t.Fatalf("bad frame: %v", err)
+			}
+			h.Write(chunk[:len(chunk)-protocol.TagBytes])
+			got += len(chunk)
+			continue
+		}
+		if env.Type == protocol.TypeTransferComplete {
+			break
+		}
+		if env.Type == protocol.TypeTransferFailed || env.Type == protocol.TypeError {
+			t.Fatalf("pickup failed: %s", env.Data)
+		}
+	}
+	if int64(got) != protocol.WireSize(int64(len(payload))) || hex.EncodeToString(h.Sum(nil)) != hex.EncodeToString(want[:]) {
+		t.Fatalf("picked-up bytes differ (got %d wire bytes)", got)
+	}
+	var gone protocol.DropGone
+	b.unmarshal(b.expect(protocol.TypeDropGone), &gone)
+	if gone.Reason != "picked-up" {
+		t.Fatalf("drop-gone reason = %s", gone.Reason)
+	}
+}
