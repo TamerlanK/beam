@@ -1,3 +1,5 @@
+import { get, put } from "./store.js";
+
 const ECDH = { name: "ECDH", namedCurve: "P-256" };
 const ALPHA = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 
@@ -26,29 +28,16 @@ function iv(n) {
   return b;
 }
 
-function kv(mode, op) {
-  return new Promise((resolve, reject) => {
-    const open = indexedDB.open("beam", 1);
-    open.onupgradeneeded = () => open.result.createObjectStore("kv");
-    open.onerror = () => reject(open.error);
-    open.onsuccess = () => {
-      const db = open.result, tx = db.transaction("kv", mode), req = op(tx.objectStore("kv"));
-      tx.oncomplete = () => { db.close(); resolve(req.result); };
-      tx.onerror = () => { db.close(); reject(tx.error); };
-    };
-  });
-}
-
 // The browser's long-lived ECDH keypair, kept in IndexedDB as a
 // non-extractable CryptoKey so the private half never exists as bytes.
 // ponytail: if IndexedDB is unavailable (private mode) the key lives one session
 export async function deviceKeypair() {
   try {
-    const k = await kv("readonly", (s) => s.get("ecdh"));
+    const k = await get("ecdh");
     if (k && k.priv && typeof k.pub === "string") return k;
   } catch {}
   const kp = await keypair();
-  try { await kv("readwrite", (s) => s.put(kp, "ecdh")); } catch {}
+  try { await put("ecdh", kp); } catch {}
   return kp;
 }
 

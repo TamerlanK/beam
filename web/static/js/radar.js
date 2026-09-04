@@ -166,14 +166,14 @@ function addCard(p) {
   el.querySelector(".peer-name").textContent = p.name;
   const hit = el.querySelector(".peer-hit");
   hit.setAttribute("aria-label", `Send files to ${p.name}`);
-  hit.addEventListener("click", () => { if (sendShared(p.id)) return; picker.dataset.target = p.id; picker.click(); });
+  hit.addEventListener("click", () => { if (!sendShared(p.id)) pickFiles(p.id); });
   hit.addEventListener("dragover", (e) => { e.preventDefault(); el.classList.add("is-target"); });
   hit.addEventListener("dragleave", () => el.classList.remove("is-target"));
   hit.addEventListener("drop", (e) => {
     e.preventDefault(); e.stopPropagation();
     el.classList.remove("is-target");
     endDrag();
-    queueFiles(p.id, e.dataTransfer.files);
+    filesOf(e.dataTransfer).then((files) => queueFiles(p.id, files));
   });
   const note = el.querySelector(".note-btn");
   note.setAttribute("aria-label", `Send a note to ${p.name}`);
@@ -325,6 +325,38 @@ function initDrag() {
     e.preventDefault();
     if (!hasFiles(e)) return endDrag();
     endDrag();
-    stageFiles(e.dataTransfer.files);
+    filesOf(e.dataTransfer).then(stageFiles);
+  });
+}
+
+// Files that come with a file-system handle can be reopened after a reload,
+// which is what lets a send resume. The picker and drops give one on Chromium.
+async function pickFiles(target) {
+  if (typeof showOpenFilePicker === "function") {
+    try {
+      const handles = await showOpenFilePicker({ multiple: true });
+      queueFiles(target, await Promise.all(handles.map(withHandle)));
+      return;
+    } catch (e) {
+      if (e && e.name === "AbortError") return;
+    }
+  }
+  picker.dataset.target = target;
+  picker.click();
+}
+
+async function withHandle(h) {
+  const f = await h.getFile();
+  f.handle = h;
+  return f;
+}
+
+function filesOf(dt) {
+  const files = [...dt.files];
+  const items = [...dt.items].filter((i) => i.kind === "file");
+  if (items.length !== files.length || !items.length || typeof items[0].getAsFileSystemHandle !== "function") return Promise.resolve(files);
+  return Promise.all(items.map((i) => i.getAsFileSystemHandle().catch(() => null))).then((hs) => {
+    hs.forEach((h, i) => { if (h && h.kind === "file") files[i].handle = h; });
+    return files;
   });
 }

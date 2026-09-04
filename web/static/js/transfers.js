@@ -2,10 +2,11 @@ import { state, emit, on, isDone, peerName, toast } from "./state.js";
 import { uuid, uuidBytes, bytesToUUID } from "./util.js";
 import { fileKind } from "./icons.js";
 import { available as e2e, keypair, shared, seal, open, randomKey, importSecret } from "./crypto.js";
-import { openSink, saveBlob } from "./sink.js";
+import { openSink, reopenSink, reapParts, saveBlob } from "./sink.js";
 import * as rtc from "./rtc.js";
 import { previewOf, validPreview } from "./preview.js";
 import { device, fits, secretFor, forgetSecret, ttlText } from "./drops.js";
+import * as store from "./store.js";
 
 export { saveBlob };
 
@@ -15,6 +16,8 @@ export const OFFER_TTL = 30000;
 const RESUME_TTL = 120000;
 const MISSED_TTL = 60000;
 const CREATE_TTL = 10000;
+const SAVE_EVERY = 1000;
+const RECORD_TTL = 24 * 3600 * 1000;
 const MAX_INFLIGHT = 24; // ponytail: hub refuses more than 32 live transfers per sender
 
 let socket = null;
@@ -62,8 +65,125 @@ function newSend(peerId, file, extra) {
     name: file.name, size: file.size, mime: file.type, kind: fileKind(file.name, file.type),
     state: "offered", file, offset: 0, bytes: 0, credits: 0, pumping: false, seq: 0, gen: 0, reofferedAt: -Infinity,
     priv: null, pub: "", key: null, sas: "", timer: 0, drop: "", peerName: "", ttl: 0,
+    handle: file.handle || null, durable: false, needsClick: false, preparing: false, savedAt: 0, savedOffset: -1,
     samples: [], hist: [], lastPaint: 0, startedAt: 0, note: "", ...extra,
   };
+}
+
+// Durable resume: what a reload must not lose lives in IndexedDB. The sender
+// keeps the file handle, key and offset; the receiver keeps the key and how
+// many bytes its part file holds. The protocol already resumes by offset, so
+// the server needs nothing.
+
+const recordKey = (t) => `${t.dir === "send" ? "tx" : "rx"}:${t.id}`;
+
+function nameOf(t) {
+  const p = state.peers.get(t.peerId);
+  return p ? p.name : t.peerName;
+}
+
+function saveSend(t) {
+  t.savedAt = performance.now();
+  t.savedOffset = t.offset;
+  store.put(recordKey(t), {
+    id: t.id, dir: "send", peerId: t.peerId, peerName: nameOf(t), name: t.name, size: t.size, mime: t.mime, kind: t.kind,
+    handle: t.handle, key: t.key, pub: t.pub, sas: t.sas, offset: t.offset, at: Date.now(),
+  }).catch(() => {});
+}
+
+function saveRecv(t) {
+  t.savedBytes = t.sink.flushed;
+  store.put(recordKey(t), {
+    id: t.id, dir: "recv", peerId: t.peerId, peerName: nameOf(t), name: t.name, size: t.size, mime: t.mime, kind: t.kind,
+    key: t.key, pub: t.pub, sas: t.sas, bytes: t.sink.flushed, target: t.sink.target, at: Date.now(),
+  }).catch(() => {});
+}
+
+function forget(t) {
+  if (t.durable) store.del(recordKey(t)).catch(() => {});
+}
+
+function revive(r) {
+  const base = {
+    id: r.id, idBytes: uuidBytes(r.id), dir: r.dir, peerId: r.peerId, peerName: r.peerName, link: socketLink,
+    name: r.name, size: r.size, mime: r.mime || "", kind: r.kind || fileKind(r.name, r.mime || ""), state: "paused", durable: true,
+    key: r.key, pub: r.pub || "", sas: r.sas || "", timer: 0, drop: "", preview: "", savedAt: 0, savedOffset: -1, needsClick: false, preparing: false,
+    samples: [], hist: [], lastPaint: 0, startedAt: 0, note: "",
+  };
+  if (r.dir === "send") {
+    return { ...base, file: null, handle: r.handle, offset: r.offset, bytes: r.offset, credits: 0, pumping: false, seq: r.offset / CHUNK, gen: 0, reofferedAt: -Infinity, priv: null, ttl: 0 };
+  }
+  return { ...base, bytes: r.bytes, seq: r.bytes / CHUNK, chain: Promise.resolve(), sink: null, target: r.target || null, blobUrl: null, saved: false };
+}
+
+// Called whenever this tab becomes the device's live tab: bring back every
+// unfinished transfer as a paused row and reconcile with what is in memory.
+export async function restore() {
+  let recs = [];
+  try { recs = [...(await store.list("tx:")), ...(await store.list("rx:"))]; } catch {}
+  const keep = new Set();
+  for (const r of recs) {
+    if (!r || !r.id || !(r.size > 0) || Date.now() - r.at > RECORD_TTL) {
+      if (r && r.id) store.del(`${r.dir === "send" ? "tx" : "rx"}:${r.id}`).catch(() => {});
+      continue;
+    }
+    keep.add(r.id);
+    const t = state.transfers.get(r.id);
+    if (t) {
+      if (t.dir === "recv" && !t.sink) { t.bytes = r.bytes; t.seq = r.bytes / CHUNK; }
+      continue;
+    }
+    const fresh = revive(r);
+    state.transfers.set(r.id, fresh);
+    emit("transfer:add", fresh);
+  }
+  for (const t of state.transfers.values()) if (t.durable && !isDone(t) && !keep.has(t.id)) end(t, "failed", "");
+  reapParts(keep).catch(() => {});
+}
+
+// This tab is handing over to another: let go of part-file locks, keep the records.
+export function release() {
+  for (const t of state.transfers.values()) {
+    if (t.durable && t.dir === "recv" && t.sink && t.sink.detach) { t.sink.detach(); t.sink = null; }
+  }
+}
+
+// A restored sender has a handle but no File yet; reading it may need a click.
+async function prepare(t) {
+  if (t.file || !t.handle || t.preparing) return;
+  t.preparing = true;
+  try {
+    if ((await t.handle.queryPermission({ mode: "read" })) !== "granted") {
+      if (!t.needsClick) { t.needsClick = true; emit("transfer:state", t); }
+      return;
+    }
+    const f = await t.handle.getFile();
+    if (f.size !== t.size) return end(t, "failed", "the file changed on disk");
+    t.file = f;
+    t.needsClick = false;
+    emit("transfer:state", t);
+    retryPaused();
+  } catch {
+    end(t, "failed", "couldn't reopen the file");
+  } finally {
+    t.preparing = false;
+  }
+}
+
+export async function resumeClick(t) {
+  if (t.dir !== "send" || !t.handle || t.file) return;
+  try { if ((await t.handle.requestPermission({ mode: "read" })) !== "granted") return; } catch { return; }
+  t.needsClick = false;
+  t.reofferedAt = -Infinity;
+  prepare(t);
+}
+
+export async function saveClick(t) {
+  if (!t.save) return;
+  const save = t.save;
+  t.save = null;
+  Object.assign(t, await save());
+  emit("transfer:state", t);
 }
 
 async function offer(peerId, file) {
@@ -215,10 +335,12 @@ function record(t) {
 }
 
 setInterval(() => {
+  const now = performance.now();
   for (const t of state.transfers.values()) {
     if (t.state !== "active") continue;
     record(t);
     emit("transfer:progress", t);
+    if (t.durable && t.dir === "send" && t.offset !== t.savedOffset && now - t.savedAt > SAVE_EVERY) saveSend(t);
   }
   retryPaused();
 }, 500);
@@ -235,6 +357,7 @@ export function onChunk(data, link) {
     t.bytes += buf.byteLength;
     if (t.bytes > t.size) throw new Error("overflow");
     await t.sink.write(buf);
+    if (t.durable && t.sink.flushed !== t.savedBytes) saveRecv(t);
     sample(t);
     paint(t);
     if (t.bytes >= t.size) await finishReceive(t);
@@ -285,7 +408,7 @@ export async function answerOffer(accept) {
 }
 
 async function acceptOne(d, dir) {
-  const sink = await openSink(d.name, d.mime || "", dir);
+  const sink = await openSink(d.id, d.name, d.size, d.mime || "", dir);
   if (!state.offers.includes(d)) { sink.abort(); return; }
   let pub = "", key = null, sas = "";
   if (d.drop) {
@@ -309,6 +432,7 @@ async function acceptOne(d, dir) {
     id: d.id, idBytes: uuidBytes(d.id), dir: "recv", peerId: d.from ? d.from.id : "", link: d.link,
     name: d.name, size: d.size, mime: d.mime || "", kind: d.kind, drop: d.drop ? "device" : "", peerName: d.from ? d.from.name : "",
     state: "active", bytes: 0, seq: 0, chain: Promise.resolve(), sink, key, sas, pub,
+    durable: !d.drop && sink.durable === true, target: sink.target || null, savedBytes: -1, needsClick: false,
     samples: [], hist: [], lastPaint: 0, startedAt: performance.now(), note: "", blobUrl: null, saved: false, preview: d.preview || "",
   };
   state.transfers.set(d.id, t);
@@ -317,6 +441,7 @@ async function acceptOne(d, dir) {
     else d.link.send("transfer-answer", { id: d.id, accept: true, key: pub || undefined });
   } catch { sink.abort(); return end(t, "failed", "connection lost"); }
   emit("transfer:add", t);
+  if (t.durable) saveRecv(t);
 }
 
 export function cancel(t, note = "canceled") {
@@ -338,6 +463,7 @@ function end(t, st, note = "") {
   t.note = note;
   clearTimeout(t.timer);
   forgetSecret(t.id);
+  forget(t);
   if (st === "done") {
     toast(doneToast(t), "ok");
   } else if (note && !quiet) {
@@ -349,12 +475,13 @@ function end(t, st, note = "") {
     if (state.transfers.get(t.id) !== t) return;
     state.transfers.delete(t.id);
     emit("transfer:remove", t);
-  }, st === "done" ? (t.drop && t.dir === "send" ? 60000 : 7000) : 9000);
+  }, st === "done" ? (t.save || (t.drop && t.dir === "send") ? 60000 : 7000) : 9000);
   if (t.dir === "send") next(t.peerId);
 }
 
 function arm(t) {
   clearTimeout(t.timer);
+  if (t.durable) return;
   t.timer = setTimeout(() => { if (t.state === "paused") end(t, "failed", "couldn't resume within 2 minutes"); }, RESUME_TTL);
 }
 
@@ -403,6 +530,7 @@ function retryPaused() {
   const now = performance.now();
   for (const t of state.transfers.values()) {
     if (t.dir !== "send" || t.state !== "paused" || !state.peers.has(t.peerId) || now - t.reofferedAt < OFFER_TTL) continue;
+    if (!t.file) { prepare(t); continue; }
     t.link = rtc.linkFor(t.peerId) || socketLink;
     t.reofferedAt = now;
     const hint = Math.min(t.offset, Math.floor((t.size - 1) / CHUNK) * CHUNK);
@@ -417,18 +545,27 @@ function resumable(t, d) {
   return t.dir === "recv" && (t.state === "paused" || t.state === "active") && !!d.from && t.peerId === d.from.id && t.name === d.name && t.size === d.size;
 }
 
-async function resumeReceive(t, link) {
+async function resumeReceive(t, link, hint = t.bytes) {
   clearTimeout(t.timer);
   t.link = link;
   t.state = "paused";
   await t.chain.catch(() => {});
   if (isDone(t) || t.link !== link) return;
+  if (!t.sink) {
+    try { t.sink = await reopenSink(t.id, t.name, t.mime, t.target); } catch { return end(t, "failed", "couldn't reopen the saved part"); }
+    if (isDone(t) || t.link !== link) return;
+  }
+  // The sender's hint may sit below what we hold (it saves its offset lazily);
+  // the server only accepts an answer at or below the hint, so rewind to it.
+  const off = Math.min(t.bytes, Math.max(0, Math.floor(hint / CHUNK) * CHUNK));
+  if (off < t.bytes) t.sink.seek(off);
+  t.bytes = off;
   t.chain = Promise.resolve();
-  t.seq = Math.floor(t.bytes / CHUNK);
+  t.seq = off / CHUNK;
   t.samples = [];
   try {
-    if (t.drop) link.send("drop-accept", { id: t.id, offset: t.bytes });
-    else link.send("transfer-answer", { id: t.id, accept: true, key: t.pub || undefined, offset: t.bytes });
+    if (t.drop) link.send("drop-accept", { id: t.id, offset: off });
+    else link.send("transfer-answer", { id: t.id, accept: true, key: t.pub || undefined, offset: off });
   } catch {
     return arm(t);
   }
@@ -473,7 +610,7 @@ export const handlers = {
     if (!normalize(d, link)) return;
     const t = state.transfers.get(d.id);
     if (t) {
-      if (resumable(t, d)) resumeReceive(t, link);
+      if (resumable(t, d)) resumeReceive(t, link, Number(d.offset) || 0);
       return;
     }
     if (state.offers.some((o) => o.id === d.id)) return;
@@ -497,6 +634,7 @@ export const handlers = {
     t.state = "active";
     t.credits = INITIAL_CREDITS;
     if (!t.startedAt) t.startedAt = performance.now();
+    if (t.handle && !t.durable) { t.durable = true; saveSend(t); }
     emit("transfer:state", t);
     pump(t);
   },
@@ -578,6 +716,7 @@ export const handlers = {
       else if (d.reason === "canceled") toast(`${t.drop === "link" ? "Someone" : t.peerName} declined ${t.name}`, "bad");
       return;
     }
-    if (!isDone(t)) end(t, "failed", d.reason === "expired" ? "expired before you could finish" : "taken back by the sender");
+    // picked-up is our own pickup completing; the sink may still be flushing the tail.
+    if (!isDone(t) && d.reason !== "picked-up") end(t, "failed", d.reason === "expired" ? "expired before you could finish" : "taken back by the sender");
   },
 };

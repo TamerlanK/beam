@@ -179,15 +179,15 @@ function gate(status) {
 gateBtn.addEventListener("click", takeover);
 
 initTabs({
-  onLead() { gate(null); socket.connect(); },
+  onLead() { gate(null); transfers.restore().finally(() => socket.connect()); },
   onWait(status) { gate(status); },
   onYield() {
     for (const d of document.querySelectorAll("dialog[open]")) d.close();
-    return socket.close();
+    return socket.close().then(transfers.release);
   },
   isBusy() {
     if (state.offers.length) return true;
-    for (const t of state.transfers.values()) if (!isDone(t)) return true;
+    for (const t of state.transfers.values()) if (!isDone(t) && t.state !== "paused") return true;
     return false;
   },
 });

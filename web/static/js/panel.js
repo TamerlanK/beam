@@ -1,6 +1,6 @@
 import { state, on, emit, isDone, peerName } from "./state.js";
 import { $, el, icon, thumb, fmtSize, fmtRate, fmtLeft } from "./util.js";
-import { rateOf, etaOf, cancel, saveBlob, canLeave, leaveFor, dismiss } from "./transfers.js";
+import { rateOf, etaOf, cancel, saveBlob, canLeave, leaveFor, dismiss, resumeClick, saveClick } from "./transfers.js";
 import { ttlText } from "./drops.js";
 
 const mobile = matchMedia("(max-width: 640px)");
@@ -78,11 +78,14 @@ function updateRow(t) {
       act.append(cancelBtn(t));
       break;
     }
-    case "paused":
-      meta.textContent = `Paused · ${fmtSize(t.bytes)} of ${fmtSize(t.size)} · resuming…`;
+    case "paused": {
+      const why = t.needsClick ? "needs your OK to reopen the file" : t.durable ? `resumes when ${who} is back` : "resuming…";
+      meta.textContent = `Paused · ${fmtSize(t.bytes)} of ${fmtSize(t.size)} · ${why}`;
       fill.style.width = `${t.size ? (t.bytes / t.size) * 100 : 0}%`;
+      if (t.needsClick) act.append(el("button", { class: "btn btn-ghost", type: "button", onclick: () => resumeClick(t) }, icon("up"), "Resume"));
       act.append(cancelBtn(t));
       break;
+    }
     case "done":
       if (t.drop && t.dir === "send") {
         meta.textContent = t.note === "picked-up" ? `Picked up${t.drop === "link" ? "" : ` by ${who}`}`
@@ -92,7 +95,8 @@ function updateRow(t) {
         if (t.drop === "link" && !t.note) act.append(el("button", { class: "btn btn-ghost", type: "button", onclick: () => emit("drop:link", t) }, icon("copy"), "Show link"));
         break;
       }
-      meta.textContent = t.dir === "send" ? `Sent to ${who}` : t.saved ? "Saved" : "Saved to your downloads";
+      meta.textContent = t.dir === "send" ? `Sent to ${who}` : t.saved ? "Saved" : t.save ? "Received · one click to finish saving into your file" : "Saved to your downloads";
+      if (t.save) act.append(el("button", { class: "btn btn-primary", type: "button", onclick: () => saveClick(t) }, icon("save"), "Save file"));
       if (t.blobUrl) act.append(el("button", { class: "btn btn-ghost", type: "button", onclick: () => saveBlob(t) }, icon("save"), "Save again"));
       break;
     default:
