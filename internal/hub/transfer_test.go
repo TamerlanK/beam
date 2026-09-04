@@ -225,7 +225,9 @@ func TestTransferResumeBaseline(t *testing.T) {
 	if err := plain.Chunk("sender", 1); err == nil {
 		t.Fatal("chunk beyond the remainder accepted")
 	}
-	plain.NoteWritten(protocol.ChunkSize)
+	if done, err := plain.NoteWritten(protocol.ChunkSize); done || err != nil {
+		t.Fatalf("plain resume completed early: done=%v err=%v", done, err)
+	}
 	if done, _ := plain.NoteWritten(1); !done || plain.State != StateCompleted {
 		t.Fatalf("plain resume did not complete: %s", plain.State)
 	}
@@ -239,7 +241,9 @@ func TestTransferResumeBaseline(t *testing.T) {
 	}
 	must(t, enc.Chunk("sender", protocol.ChunkSize+protocol.TagBytes))
 	must(t, enc.Chunk("sender", 1+protocol.TagBytes))
-	enc.NoteWritten(protocol.ChunkSize + protocol.TagBytes)
+	if done, err := enc.NoteWritten(protocol.ChunkSize + protocol.TagBytes); done || err != nil {
+		t.Fatalf("encrypted resume completed early: done=%v err=%v", done, err)
+	}
 	if done, _ := enc.NoteWritten(1 + protocol.TagBytes); !done || enc.State != StateCompleted {
 		t.Fatalf("encrypted resume did not complete: %s", enc.State)
 	}
