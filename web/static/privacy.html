@@ -39,7 +39,7 @@
     <p>The software does not store logs itself. How long they are kept is decided by the operator of this instance, not by beam. Ask the contact below for their retention period.</p>
 
     <h2>Nothing on disk, no cookies</h2>
-    <p>The server writes nothing to disk and sets no cookies. Your device identity (a random ID, name, and emoji), your theme choice, and your transfer history live in your browser's local storage; the key other devices use to leave you drops lives in its IndexedDB. Clearing site data removes them all.</p>
+    <p>The server writes nothing to disk and sets no cookies. Your device identity (a random ID, name, and emoji), your theme choice, and your transfer history live in your browser's local storage. Its IndexedDB holds the key other devices use to leave you drops and, while a transfer is unfinished, what resuming it needs: the transfer's key, the other device's id, and either a handle to the file you are sending or the partial file you are receiving, which sits in the browser's private storage for this site. All of that is deleted when the transfer finishes or after a day. Clearing site data removes everything.</p>
 
     <h2>Direct transfers</h2>
     <p>When two devices connect directly, each browser asks Google's STUN server (<span class="mono">stun.l.google.com</span>) for its public address. Google sees your IP address in that request and nothing else. If a direct connection fails, the transfer is relayed through this server.</p>

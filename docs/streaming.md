@@ -1,5 +1,11 @@
 # Streaming, flow control, and the memory model
 
+> Receiver-side note (2026-09-04): received chunks now go into a part file
+> in the origin-private file system via a worker's sync access handle, on
+> every browser that has one; the File System Access writable and the
+> in-memory Blob described below are the fallbacks. See the durable-resume
+> entry in [decisions.md](decisions.md).
+
 The invariant everything below serves: **server memory stays flat no matter
 how large or how slow a transfer is.** Relaying a 50GB file must cost the
 same RAM as relaying 5MB.

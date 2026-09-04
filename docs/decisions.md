@@ -4,6 +4,35 @@ ADR-style log. Each entry: context → decision → consequences.
 
 ---
 
+## 2026-09-04 — Durable resume: receive into OPFS, remember handles in IndexedDB
+
+**Context.** Resume only survived a dropped link for two minutes, because
+everything lived in tab memory: the receiver's writable stream, the
+sender's `File`, the derived AES key. A File System Access writable is no
+help, since it commits to the real file only on `close()` and reopening
+with `keepExistingData` copies the whole file so far.
+
+**Decision.** The receiver writes into a part file in the origin-private
+file system through a sync access handle in a worker, flushing every 4MB,
+and records the flushed byte count, key and peer in IndexedDB; on
+completion the part is streamed into the file the user picked (Chromium)
+or downloaded. The sender records its file-system handle, key and offset
+when it has a handle (the picker and drag-drop provide one on Chromium),
+saving the offset once a second. On becoming the device's live tab, both
+sides revive their records as paused rows; the sender re-offers when the
+peer is back, the receiver answers with `min(held, hint)` and rewinds its
+sink to it. Records older than a day and abandoned parts are reaped.
+
+**Consequences.** A closed tab, a crashed browser or a sleeping laptop
+resumes, and Firefox and Safari now stream to disk too, closing the
+in-memory Blob ceiling for every browser with OPFS. The price is a second
+write on Chromium (part file, then the chosen file) and a permission click
+after a reload when the browser no longer remembers the grant. The wire
+protocol is unchanged; the server's existing rule that an answer offset
+may not exceed the sender's hint is what makes lazy offset saving safe.
+
+---
+
 ## 2026-09-04 — Drops: the server may hold ciphertext, briefly
 
 **Context.** Every transfer needed both browsers open at the same moment.
@@ -130,7 +159,7 @@ transfer's sender on every frame.
 
 ---
 
-## 2026-09-01 — Receiver assembles a Blob in memory
+## 2026-09-01 — Receiver assembles a Blob in memory (superseded 2026-09-04: OPFS part files)
 
 **Context.** Browsers cannot stream to disk without permissions
 (File System Access) or fragile service-worker shims.

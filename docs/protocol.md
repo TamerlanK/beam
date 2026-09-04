@@ -170,9 +170,11 @@ Only the offer's target may answer. On accept the sender may start
 streaming with an initial window of **16 chunks** (see
 [streaming.md](streaming.md)).
 
-`offset` is optional: the receiver's committed plaintext byte count, the
-position streaming resumes from. It must be chunk-aligned, below `size`,
-and at most the offer's `offset` hint, else `bad-message`. The receiver is
+`offset` is optional: the position streaming resumes from. It must be
+chunk-aligned, below `size`, and at most the offer's `offset` hint, else
+`bad-message`. A receiver holding more than the hint rewinds to the hint,
+which is safe because the same plaintext chunk under the same key and
+nonce yields the same ciphertext. The receiver is
 the source of truth because up to 16 chunks can be in flight when a link
 drops. The server starts its relayed and written counters at this offset
 (its wire equivalent for encrypted transfers), so completion accounting is
