@@ -4,7 +4,7 @@ run:
 	go run ./cmd/beam
 
 dev:
-	find . -name '*.go' -o -path './web/static/*' -type f | entr -nr go run ./cmd/beam
+	gow -e=go,html,css,js run ./cmd/beam
 
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o beam ./cmd/beam
