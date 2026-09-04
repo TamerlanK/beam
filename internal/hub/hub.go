@@ -43,6 +43,13 @@ type bucket struct {
 type Limits struct {
 	MaxConnsPerIP    int
 	RelayBytesPerSec int64
+
+	// MaxDropBytes caps one drop's plaintext size; 0 disables drops.
+	MaxDropBytes int64
+	// DropBudget caps the ciphertext the hub holds across all drops; 0 = unlimited.
+	DropBudget int64
+	// DropTTL is how long a held drop waits for pickup (default 10 minutes).
+	DropTTL time.Duration
 }
 
 type Hub struct {
@@ -59,16 +66,21 @@ type Hub struct {
 	rooms     map[string]*Room
 	codes     map[string]*Room
 	transfers map[uuid.UUID]*Transfer
+	drops     map[uuid.UUID]*Drop
 	buckets   map[string]*bucket
 	conns     map[string]int
 
+	dropBytes   int64
 	relayTokens int64
-	starved     []*Transfer
+	starved     []func()
 }
 
 func New(log *slog.Logger, limits Limits) *Hub {
 	if log == nil {
 		log = slog.Default()
+	}
+	if limits.DropTTL <= 0 {
+		limits.DropTTL = protocol.DropTTLSec * time.Second
 	}
 	return &Hub{
 		log:        log,
@@ -82,6 +94,7 @@ func New(log *slog.Logger, limits Limits) *Hub {
 		rooms:      map[string]*Room{},
 		codes:      map[string]*Room{},
 		transfers:  map[uuid.UUID]*Transfer{},
+		drops:      map[uuid.UUID]*Drop{},
 		buckets:    map[string]*bucket{},
 		conns:      map[string]int{},
 	}
@@ -186,6 +199,7 @@ func (h *Hub) addClient(c *Client) {
 		h.rooms[key] = room
 	}
 	h.joinRoom(c, room)
+	h.announceTo(c)
 	c.log.Info("client connected", "ip", c.IP, "device", c.Device, "room", room.key)
 }
 
@@ -198,7 +212,7 @@ func (h *Hub) joinRoom(c *Client, room *Room) {
 			h.sendJSON(other, protocol.TypePeerJoined, self)
 		}
 	}
-	h.sendJSON(c, protocol.TypeRoomState, protocol.RoomState{Self: self, Peers: room.peersExcept(c)})
+	h.sendJSON(c, protocol.TypeRoomState, protocol.RoomState{Self: self, Peers: room.peersExcept(c), Drops: h.dropLimits()})
 }
 
 func (h *Hub) leaveRoom(c *Client) {
@@ -228,8 +242,13 @@ func (h *Hub) removeClient(c *Client) {
 		delete(h.conns, c.IP)
 	}
 	for _, t := range h.transfers {
-		if t.FromID == c.ID || t.ToID == c.ID {
+		if t.party(c.ID) {
 			h.failTransfer(t, "peer-disconnected")
+		}
+	}
+	for _, d := range h.drops {
+		if d.FromID == c.ID && !d.Held() {
+			h.deleteDrop(d, "sender-disconnected")
 		}
 	}
 	h.leaveRoom(c)
@@ -291,6 +310,30 @@ func (h *Hub) handleText(c *Client, raw []byte) {
 			return
 		}
 		h.handleRTC(c, m)
+	case protocol.TypeDropCreate:
+		var m protocol.DropCreate
+		if !h.unmarshal(c, env, &m) {
+			return
+		}
+		h.handleDropCreate(c, m)
+	case protocol.TypeDropClaim:
+		var m protocol.DropClaim
+		if !h.unmarshal(c, env, &m) {
+			return
+		}
+		h.handleDropClaim(c, m)
+	case protocol.TypeDropAccept:
+		var m protocol.DropAccept
+		if !h.unmarshal(c, env, &m) {
+			return
+		}
+		h.handleDropAccept(c, m)
+	case protocol.TypeDropCancel:
+		var m protocol.DropCancel
+		if !h.unmarshal(c, env, &m) {
+			return
+		}
+		h.handleDropCancel(c, m)
 	default:
 		h.sendErr(c, protocol.ErrCodeBadMessage, "unexpected message type "+env.Type)
 	}
@@ -339,7 +382,7 @@ func (h *Hub) handleRoomJoin(c *Client, m protocol.RoomJoin) {
 	}
 
 	for _, t := range h.transfers {
-		if t.FromID == c.ID || t.ToID == c.ID {
+		if t.party(c.ID) {
 			h.failTransfer(t, "peer-left-room")
 		}
 	}
@@ -370,7 +413,7 @@ func (h *Hub) handleOffer(c *Client, m protocol.TransferOffer) {
 		h.sendErr(c, protocol.ErrCodeBadMessage, "transfer id must be a UUID")
 		return
 	}
-	if h.transfers[id] != nil {
+	if h.transfers[id] != nil || h.drops[id] != nil {
 		h.sendErr(c, protocol.ErrCodeBadTransfer, "transfer id already in use")
 		return
 	}
@@ -555,7 +598,10 @@ func (h *Hub) handleFrame(m inbound) {
 	}
 	t := h.transfers[id]
 	if t == nil {
-
+		if d := h.drops[id]; d != nil {
+			h.storeFrame(c, d, m)
+			return
+		}
 		framePool.Put(m.pool)
 		return
 	}
@@ -594,20 +640,39 @@ func (h *Hub) handleWritten(w written) {
 	}
 	if completed {
 		done := protocol.TransferComplete{ID: t.ID.String(), Bytes: t.Written}
-		if sender := h.clients[t.FromID]; sender != nil {
+		if sender := h.clients[t.FromID]; sender != nil && t.drop == nil {
 			h.sendJSON(sender, protocol.TypeTransferComplete, done)
 		}
 		h.sendJSON(w.to, protocol.TypeTransferComplete, done)
 		delete(h.transfers, t.ID)
 		h.logTransfer(t, "transfer completed")
+		if d := t.drop; d != nil {
+			d.pickup = nil
+			h.deleteDrop(d, "picked-up")
+			h.logDrop(d, "drop picked up")
+		}
 		return
 	}
 	if h.limits.RelayBytesPerSec > 0 {
 		h.relayTokens -= int64(w.n)
 		if h.relayTokens < 0 {
-			h.starved = append(h.starved, t)
+			h.starved = append(h.starved, func() {
+				if h.transfers[t.ID] == t {
+					h.advance(t)
+				}
+			})
 			return
 		}
+	}
+	h.advance(t)
+}
+
+// advance moves a transfer one chunk forward once the receiver consumed one:
+// a relay hands the sender a credit, a drop pickup pushes the next held frame.
+func (h *Hub) advance(t *Transfer) {
+	if t.drop != nil {
+		h.pushDrop(t)
+		return
 	}
 	h.grantCredit(t)
 }
@@ -632,12 +697,9 @@ func (h *Hub) refillRelay() {
 	}
 	h.relayTokens = min(h.relayTokens+h.limits.RelayBytesPerSec, h.limits.RelayBytesPerSec)
 	for len(h.starved) > 0 && h.relayTokens >= 0 {
-		t := h.starved[0]
+		resume := h.starved[0]
 		h.starved = h.starved[1:]
-		if h.transfers[t.ID] != t {
-			continue
-		}
-		h.grantCredit(t)
+		resume()
 	}
 }
 
@@ -646,7 +708,7 @@ func (h *Hub) failTransfer(t *Transfer, reason string) {
 		return
 	}
 	msg := protocol.TransferFailed{ID: t.ID.String(), Reason: reason}
-	if from := h.clients[t.FromID]; from != nil {
+	if from := h.clients[t.FromID]; from != nil && t.drop == nil {
 		h.sendJSON(from, protocol.TypeTransferFailed, msg)
 	}
 	if to := h.clients[t.ToID]; to != nil {
@@ -654,10 +716,16 @@ func (h *Hub) failTransfer(t *Transfer, reason string) {
 	}
 	delete(h.transfers, t.ID)
 	h.logTransfer(t, "transfer failed", "reason", reason)
+	if d := t.drop; d != nil && d.pickup == t {
+		// The drop survives a failed pickup; re-offer it if the addressee is still here.
+		d.pickup = nil
+		h.announce(d)
+	}
 }
 
 func (h *Hub) tick(now time.Time) {
 	h.refillRelay()
+	h.reapDrops(now)
 	for _, t := range h.transfers {
 		if t.State == StateOffered && now.After(t.Deadline) {
 			h.failTransfer(t, "offer-timeout")

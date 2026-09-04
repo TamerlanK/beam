@@ -45,6 +45,8 @@ const (
 	MaxSignalBytes = 16 * 1024
 
 	MaxPreviewBytes = 40 * 1024
+
+	DropTTLSec = 600
 )
 
 const RoomCodeAlphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
@@ -66,6 +68,14 @@ const (
 	TypeFlowCredit       = "flow-credit"
 	TypeSnippet          = "snippet"
 	TypeRTC              = "rtc"
+	TypeDropCreate       = "drop-create"
+	TypeDropCreated      = "drop-created"
+	TypeDropStored       = "drop-stored"
+	TypeDropWaiting      = "drop-waiting"
+	TypeDropClaim        = "drop-claim"
+	TypeDropAccept       = "drop-accept"
+	TypeDropCancel       = "drop-cancel"
+	TypeDropGone         = "drop-gone"
 	TypeError            = "error"
 )
 
@@ -127,11 +137,71 @@ type Peer struct {
 	Name   string `json:"name"`
 	Emoji  string `json:"emoji"`
 	Device string `json:"device"`
+
+	// Pub is the device's long-lived ECDH public key (raw P-256, base64),
+	// used to seal drops addressed to it. Empty when the browser has no
+	// Web Crypto.
+	Pub string `json:"pub,omitempty"`
 }
 
 type RoomState struct {
 	Self  Peer   `json:"self"`
 	Peers []Peer `json:"peers"`
+
+	// Drops is nil when the server holds no drops.
+	Drops *DropLimits `json:"drops,omitempty"`
+}
+
+type DropLimits struct {
+	MaxBytes int64 `json:"maxBytes"`
+	TTLSec   int   `json:"ttl"`
+}
+
+// DropCreate asks the server to hold a sealed file until its addressee
+// (To, a device id) or anyone holding the link (To empty) picks it up.
+type DropCreate struct {
+	ID      string `json:"id"`
+	To      string `json:"to,omitempty"`
+	Name    string `json:"name"`
+	Size    int64  `json:"size"`
+	Mime    string `json:"mime,omitempty"`
+	Key     string `json:"key,omitempty"`
+	Preview string `json:"preview,omitempty"`
+}
+
+type DropCreated struct {
+	ID        string `json:"id"`
+	ExpiresIn int    `json:"expiresIn"`
+}
+
+type DropStored = DropCreated
+
+type DropWaiting struct {
+	ID        string `json:"id"`
+	From      *Peer  `json:"from,omitempty"`
+	Name      string `json:"name"`
+	Size      int64  `json:"size"`
+	Mime      string `json:"mime,omitempty"`
+	Key       string `json:"key,omitempty"`
+	Preview   string `json:"preview,omitempty"`
+	ExpiresIn int    `json:"expiresIn"`
+	Anyone    bool   `json:"anyone,omitempty"`
+}
+
+type DropClaim struct {
+	ID string `json:"id"`
+}
+
+type DropAccept struct {
+	ID     string `json:"id"`
+	Offset int64  `json:"offset,omitempty"`
+}
+
+type DropCancel = DropClaim
+
+type DropGone struct {
+	ID     string `json:"id"`
+	Reason string `json:"reason"`
 }
 
 type Profile struct {
@@ -218,6 +288,7 @@ const (
 	ErrCodeBadTransfer  = "bad-transfer"
 	ErrCodeTooManyConns = "too-many-connections"
 	ErrCodeReplaced     = "replaced"
+	ErrCodeBadDrop      = "bad-drop"
 )
 
 var previewPrefixes = []string{"data:image/jpeg;base64,", "data:image/png;base64,", "data:image/webp;base64,"}

@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"encoding/base64"
 	"errors"
 	"io"
 	"log/slog"
@@ -51,6 +52,7 @@ type Client struct {
 	Emoji  string
 	Device string
 	IP     string
+	Pub    string
 
 	hub  *Hub
 	conn *websocket.Conn
@@ -60,7 +62,7 @@ type Client struct {
 }
 
 func (c *Client) Peer() protocol.Peer {
-	return protocol.Peer{ID: c.ID, Name: c.Name, Emoji: c.Emoji, Device: c.Device}
+	return protocol.Peer{ID: c.ID, Name: c.Name, Emoji: c.Emoji, Device: c.Device, Pub: c.Pub}
 }
 
 func ServeWS(h *Hub, w http.ResponseWriter, r *http.Request, trustProxy bool) {
@@ -74,6 +76,7 @@ func ServeWS(h *Hub, w http.ResponseWriter, r *http.Request, trustProxy bool) {
 		ID:     id,
 		Name:   name,
 		Emoji:  emoji,
+		Pub:    publicKey(r.URL.Query().Get("pub")),
 		Device: deviceType(r.UserAgent()),
 		IP:     clientIP(r, trustProxy),
 		hub:    h,
@@ -109,6 +112,18 @@ func identity(r *http.Request) (id, name, emoji string) {
 		}
 	}
 	return id, name, emoji
+}
+
+// publicKey accepts a raw uncompressed P-256 point (65 bytes, base64); the
+// hub never uses it, it only hands it to peers who seal drops with it.
+func publicKey(s string) string {
+	if len(s) > protocol.MaxKeyChars {
+		return ""
+	}
+	if b, err := base64.StdEncoding.DecodeString(s); err != nil || len(b) != 65 || b[0] != 4 {
+		return ""
+	}
+	return s
 }
 
 func (c *Client) readPump() {

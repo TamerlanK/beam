@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/TamerlanK/beam/internal/hub"
 	"github.com/TamerlanK/beam/internal/server"
@@ -25,6 +26,9 @@ func main() {
 	maxConns := flag.Int("max-conns-per-ip", 32, "max concurrent websocket connections per IP (0 = unlimited)")
 	relayBPS := flag.Int64("relay-bps", 0, "global relay budget in bytes per second (0 = unlimited)")
 	trustProxy := flag.Bool("trust-proxy", false, "trust X-Forwarded-For for room grouping (only behind a trusted proxy)")
+	dropMax := flag.Int64("drop-max", 200<<20, "max bytes per drop held for later pickup (0 = disable drops)")
+	dropBudget := flag.Int64("drop-budget", 1<<30, "max bytes of drops held in memory at once (0 = unlimited)")
+	dropTTL := flag.Duration("drop-ttl", 10*time.Minute, "how long a drop waits to be picked up")
 	flag.Parse()
 
 	var log *slog.Logger
@@ -43,8 +47,11 @@ func main() {
 		Debug:      *debug,
 		TrustProxy: *trustProxy,
 		Contact:    *contact,
-		Limits:     hub.Limits{MaxConnsPerIP: *maxConns, RelayBytesPerSec: *relayBPS},
-		Log:        log,
+		Limits: hub.Limits{
+			MaxConnsPerIP: *maxConns, RelayBytesPerSec: *relayBPS,
+			MaxDropBytes: *dropMax, DropBudget: *dropBudget, DropTTL: *dropTTL,
+		},
+		Log: log,
 	})
 	if err != nil {
 		log.Error("startup failed", "err", err)
