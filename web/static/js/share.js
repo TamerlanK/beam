@@ -15,8 +15,14 @@ export async function initShare(s) {
     leaveLink(v.files[0]);
     setShared(null);
   });
-  on("peers", () => { if (state.shared) setShared(state.shared); });
-  if (!("caches" in window) || !new URLSearchParams(location.search).has("share")) return;
+  on("peers", () => {
+    if (state.shared) setShared(state.shared);
+  });
+  if (
+    !("caches" in window) ||
+    !new URLSearchParams(location.search).has("share")
+  )
+    return;
   history.replaceState(null, "", location.pathname);
   const cache = await caches.open(CACHE);
   const files = [];
@@ -24,7 +30,14 @@ export async function initShare(s) {
   for (const req of await cache.keys()) {
     const res = await cache.match(req);
     if (new URL(req.url).pathname.endsWith("/text")) text = await res.text();
-    else files.push(new File([await res.blob()], decodeURIComponent(res.headers.get("x-name") || "file"), { type: res.headers.get("content-type") || "" }));
+    else
+      files.push(
+        new File(
+          [await res.blob()],
+          decodeURIComponent(res.headers.get("x-name") || "file"),
+          { type: res.headers.get("content-type") || "" },
+        ),
+      );
     await cache.delete(req);
   }
   if (files.length || text) setShared({ files, text });
@@ -36,8 +49,15 @@ function setShared(v) {
   bar.hidden = !v;
   if (!v) return;
   const n = v.files.length;
-  $("shareWhat").textContent = n === 0 ? "a note" : n === 1 ? v.files[0].name : `${v.files[0].name} and ${n - 1} more`;
-  $("shareVerb").textContent = state.peers.size ? "Tap a device to send" : "Waiting for a device to send";
+  $("shareWhat").textContent =
+    n === 0
+      ? "a note"
+      : n === 1
+        ? v.files[0].name
+        : `${v.files[0].name} and ${n - 1} more`;
+  $("shareVerb").textContent = state.peers.size
+    ? "Tap a device to send"
+    : "Waiting for a device to send";
   $("shareLink").hidden = !(n === 1 && fits(v.files[0].size));
   emit("layout");
 }
@@ -53,7 +73,10 @@ export function sendShared(peerId) {
   const v = state.shared;
   if (!v) return false;
   if (v.files.length) queueFiles(peerId, v.files);
-  else if (v.text) { socket.send("snippet", { to: peerId, text: v.text.slice(0, 8000) }); toast("Note sent", "ok"); }
+  else if (v.text) {
+    socket.send("snippet", { to: peerId, text: v.text.slice(0, 8000) });
+    toast("Note sent", "ok");
+  }
   setShared(null);
   return true;
 }

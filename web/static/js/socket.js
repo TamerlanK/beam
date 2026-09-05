@@ -13,19 +13,32 @@ export function createSocket({ params, onOpen, onClose, onMessage, onBinary }) {
     const sock = new WebSocket(`${scheme}://${location.host}/ws${q}`);
     ws = sock;
     sock.binaryType = "arraybuffer";
-    sock.onopen = () => { if (ws === sock) { delay = 1000; onOpen(); } };
+    sock.onopen = () => {
+      if (ws === sock) {
+        delay = 1000;
+        onOpen();
+      }
+    };
     sock.onmessage = (ev) => {
       if (ws !== sock) return;
       if (typeof ev.data !== "string") return onBinary(ev.data);
       let env;
-      try { env = JSON.parse(ev.data); } catch { return; }
+      try {
+        env = JSON.parse(ev.data);
+      } catch {
+        return;
+      }
       if (env.v === PROTO_V && env.type) onMessage(env.type, env.data || {});
     };
     sock.onclose = () => {
       if (ws !== sock) return;
       ws = null;
       onClose(stopped);
-      if (closed) { const r = closed; closed = null; r(); }
+      if (closed) {
+        const r = closed;
+        closed = null;
+        r();
+      }
       if (!stopped) {
         timer = setTimeout(dial, delay);
         delay = Math.min(delay * 2, 15000);
@@ -34,7 +47,9 @@ export function createSocket({ params, onOpen, onClose, onMessage, onBinary }) {
   }
 
   return {
-    get open() { return !!ws && ws.readyState === WebSocket.OPEN; },
+    get open() {
+      return !!ws && ws.readyState === WebSocket.OPEN;
+    },
     connect() {
       if (!stopped) return;
       stopped = false;

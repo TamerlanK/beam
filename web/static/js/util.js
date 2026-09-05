@@ -24,7 +24,9 @@ export function uuid() {
   return bytesToUUID(b);
 }
 
-export function thumb(t) { return t.preview ? el("img", { src: t.preview, alt: "" }) : icon(t.kind); }
+export function thumb(t) {
+  return t.preview ? el("img", { src: t.preview, alt: "" }) : icon(t.kind);
+}
 
 export function icon(name, cls = "i") {
   const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -49,7 +51,8 @@ export const fmtRate = (bps) => (bps > 0 ? `${fmtSize(bps)}/s` : "");
 export function fmtLeft(sec) {
   if (!isFinite(sec) || sec < 0) return "";
   if (sec < 60) return `${Math.ceil(sec)}s left`;
-  if (sec < 3600) return `${Math.floor(sec / 60)}m ${Math.ceil(sec % 60)}s left`;
+  if (sec < 3600)
+    return `${Math.floor(sec / 60)}m ${Math.ceil(sec % 60)}s left`;
   return `${Math.floor(sec / 3600)}h ${Math.floor((sec % 3600) / 60)}m left`;
 }
 
@@ -59,7 +62,10 @@ export function fmtAgo(ts) {
   if (s < 3600) return `${Math.floor(s / 60)} min ago`;
   if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
   if (s < 172800) return "yesterday";
-  return new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return new Date(ts).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
 }
 
 export function uuidBytes(str) {
@@ -77,7 +83,11 @@ export function bytesToUUID(b) {
 export function asURL(text) {
   const t = text.trim();
   if (!/^https?:\/\/\S+$/i.test(t)) return null;
-  try { return new URL(t).href; } catch { return null; }
+  try {
+    return new URL(t).href;
+  } catch {
+    return null;
+  }
 }
 
 export async function copyText(text) {

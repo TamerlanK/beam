@@ -14,7 +14,10 @@ export const supported = !!(navigator.locks && "BroadcastChannel" in window);
 
 export function initTabs(h) {
   hooks = h;
-  if (!supported) { hooks.onLead(); return; }
+  if (!supported) {
+    hooks.onLead();
+    return;
+  }
   chan = new BroadcastChannel("beam:tabs");
   chan.onmessage = ({ data }) => {
     if (data === "takeover" && leader) {
@@ -47,7 +50,9 @@ export function takeover() {
 async function yieldLead() {
   if (yielding || !leader) return;
   yielding = true;
-  try { await hooks.onYield(); } catch {}
+  try {
+    await hooks.onYield();
+  } catch {}
   yielding = false;
   if (release) release();
 }
@@ -67,14 +72,19 @@ async function run(opts) {
         stealTimer = 0;
         hooks.onLead();
       }
-      await new Promise((r) => { release = r; });
+      await new Promise((r) => {
+        release = r;
+      });
       leader = false;
       release = null;
       return true;
     });
   } catch {
     if (opts.signal && opts.signal.aborted) return;
-    if (opts.steal) { stealing = false; return; }
+    if (opts.steal) {
+      stealing = false;
+      return;
+    }
     if (leader && !stealing) {
       leader = false;
       release = null;
@@ -89,4 +99,8 @@ async function run(opts) {
   run({ signal: waitCtl.signal });
 }
 
-export const debug = { get chan() { return chan; } };
+export const debug = {
+  get chan() {
+    return chan;
+  },
+};

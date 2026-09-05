@@ -17,7 +17,10 @@ export function initDialogs(s) {
 }
 
 function initDropLink() {
-  const modal = $("dropModal"), input = $("dropLinkInput"), qr = $("dropLinkQr"), share = $("dropLinkShare");
+  const modal = $("dropModal"),
+    input = $("dropLinkInput"),
+    qr = $("dropLinkQr"),
+    share = $("dropLinkShare");
   let url = "";
   share.hidden = typeof navigator.share !== "function";
 
@@ -32,18 +35,29 @@ function initDropLink() {
       q.addData(url);
       q.make();
       qr.innerHTML = q.createSvgTag({ cellSize: 4, margin: 0 });
-    } catch { qr.textContent = url; }
+    } catch {
+      qr.textContent = url;
+    }
     if (!modal.open) modal.showModal();
     $("dropLinkCopy").focus();
   });
-  $("dropLinkCopy").addEventListener("click", async () => { await copyText(url); toast("Link copied", "ok"); });
-  share.addEventListener("click", () => navigator.share({ url }).catch(() => {}));
+  $("dropLinkCopy").addEventListener("click", async () => {
+    await copyText(url);
+    toast("Link copied", "ok");
+  });
+  share.addEventListener("click", () =>
+    navigator.share({ url }).catch(() => {}),
+  );
   input.addEventListener("focus", () => input.select());
   $("dropLinkClose").addEventListener("click", () => modal.close());
 }
 
 function initProfile() {
-  const modal = $("profileModal"), name = $("profName"), grid = $("profEmojis"), preview = $("profPreview"), count = $("profCount");
+  const modal = $("profileModal"),
+    name = $("profName"),
+    grid = $("profEmojis"),
+    preview = $("profPreview"),
+    count = $("profCount");
   const MAX = Number(name.maxLength);
   let emoji = "";
 
@@ -56,14 +70,29 @@ function initProfile() {
   function pick(e) {
     emoji = e;
     preview.textContent = e;
-    for (const b of grid.children) b.setAttribute("aria-checked", String(b.textContent === e));
+    for (const b of grid.children)
+      b.setAttribute("aria-checked", String(b.textContent === e));
   }
 
   function open() {
     const me = state.self || identity();
     name.value = me.name;
     const list = EMOJIS.includes(me.emoji) ? EMOJIS : [me.emoji, ...EMOJIS];
-    grid.replaceChildren(...list.map((e) => el("button", { type: "button", role: "radio", "aria-checked": "false", "aria-label": e, onclick: () => pick(e) }, e)));
+    grid.replaceChildren(
+      ...list.map((e) =>
+        el(
+          "button",
+          {
+            type: "button",
+            role: "radio",
+            "aria-checked": "false",
+            "aria-label": e,
+            onclick: () => pick(e),
+          },
+          e,
+        ),
+      ),
+    );
     pick(me.emoji);
     counted();
     modal.showModal();
@@ -72,7 +101,10 @@ function initProfile() {
 
   function save() {
     const n = name.value.trim();
-    if (!n) { name.focus(); return; }
+    if (!n) {
+      name.focus();
+      return;
+    }
     socket.send("profile", { name: n, emoji });
     saveIdentity({ name: n, emoji });
     modal.close();
@@ -83,19 +115,33 @@ function initProfile() {
   $("profCancel").addEventListener("click", () => modal.close());
   $("profSave").addEventListener("click", save);
   name.addEventListener("input", counted);
-  name.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); save(); } });
+  name.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      save();
+    }
+  });
 }
 
 function initOffer() {
-  const modal = $("offerModal"), timer = $("offerTimer"), left = $("offerLeft"), queue = $("offerQueue");
-  let current = null, tick = null;
+  const modal = $("offerModal"),
+    timer = $("offerTimer"),
+    left = $("offerLeft"),
+    queue = $("offerQueue");
+  let current = null,
+    tick = null;
 
-  function stop() { clearInterval(tick); tick = null; }
+  function stop() {
+    clearInterval(tick);
+    tick = null;
+  }
 
   function show() {
-    const group = offerGroup(), d = group[0];
+    const group = offerGroup(),
+      d = group[0];
     if (!d) {
-      current = null; stop();
+      current = null;
+      stop();
       if (modal.open) modal.close("drained");
       return;
     }
@@ -109,14 +155,31 @@ function initOffer() {
     $("offerSender").textContent = d.from ? d.from.name : "Someone";
     $("offerVerb").textContent = d.drop ? "left you" : "wants to send you";
     $("offerEmoji").textContent = d.from ? d.from.emoji : "📦";
-    $("offerWhat").textContent = n === 1 ? "a file" : `${n} files · ${fmtSize(group.reduce((s, o) => s + o.size, 0))}`;
+    $("offerWhat").textContent =
+      n === 1
+        ? "a file"
+        : `${n} files · ${fmtSize(group.reduce((s, o) => s + o.size, 0))}`;
     $("offerAccept").textContent = n === 1 ? "Accept" : "Accept all";
-    $("offerFiles").replaceChildren(...group.map((o) => el("li", { class: "offer-file" },
-      el("span", { class: "tr-icon", "aria-hidden": "true" }, thumb(o)),
-      el("span", {}, el("span", { class: "offer-name", text: o.name }), el("br"), el("span", { class: "offer-size", text: fmtSize(o.size) })))));
+    $("offerFiles").replaceChildren(
+      ...group.map((o) =>
+        el(
+          "li",
+          { class: "offer-file" },
+          el("span", { class: "tr-icon", "aria-hidden": "true" }, thumb(o)),
+          el(
+            "span",
+            {},
+            el("span", { class: "offer-name", text: o.name }),
+            el("br"),
+            el("span", { class: "offer-size", text: fmtSize(o.size) }),
+          ),
+        ),
+      ),
+    );
     const img = $("offerPreview");
     img.hidden = !(n === 1 && d.preview);
-    if (!img.hidden) img.src = d.preview; else img.removeAttribute("src");
+    if (!img.hidden) img.src = d.preview;
+    else img.removeAttribute("src");
     if (!modal.open) modal.showModal();
     $("offerAccept").focus();
     stop();
@@ -125,7 +188,10 @@ function initOffer() {
       const ms = Math.max(0, ttl - (performance.now() - d.receivedAt));
       timer.style.setProperty("--left", (ms / ttl).toFixed(3));
       const s = Math.ceil(ms / 1000);
-      left.textContent = s >= 60 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}` : `${s}s`;
+      left.textContent =
+        s >= 60
+          ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`
+          : `${s}s`;
     };
     paint();
     tick = setInterval(paint, 250);
@@ -134,11 +200,19 @@ function initOffer() {
   on("offers", show);
   $("offerAccept").addEventListener("click", () => answerOffer(true));
   $("offerDecline").addEventListener("click", () => answerOffer(false));
-  modal.addEventListener("cancel", (e) => { e.preventDefault(); answerOffer(false); });
+  modal.addEventListener("cancel", (e) => {
+    e.preventDefault();
+    answerOffer(false);
+  });
 }
 
 function initConnect() {
-  const modal = $("netModal"), code = $("roomCode"), qr = $("qr"), input = $("joinInput"), pill = $("codePill"), left = $("codeLeft");
+  const modal = $("netModal"),
+    code = $("roomCode"),
+    qr = $("qr"),
+    input = $("joinInput"),
+    pill = $("codePill"),
+    left = $("codeLeft");
   let joining = null;
 
   function tick() {
@@ -159,7 +233,9 @@ function initConnect() {
     const c = state.code;
     tick();
     code.classList.toggle("is-loading", !c);
-    [...code.children].forEach((b, i) => { b.textContent = c ? c[i] : ""; });
+    [...code.children].forEach((b, i) => {
+      b.textContent = c ? c[i] : "";
+    });
     qr.replaceChildren();
     pill.hidden = !c;
     if (!c) return;
@@ -219,7 +295,10 @@ function initConnect() {
       emit("join-failed");
       return;
     }
-    if (c === state.code) { toast("That's your own code", "bad"); return; }
+    if (c === state.code) {
+      toast("That's your own code", "bad");
+      return;
+    }
     joining = c;
     emit("joining", c);
     socket.send("room-join", { code: c });
@@ -229,7 +308,9 @@ function initConnect() {
 const joinURL = (c) => `${location.origin}${location.pathname}#${c}`;
 
 function initNotes() {
-  const send = $("snipModal"), text = $("snipText"), count = $("snipCount");
+  const send = $("snipModal"),
+    text = $("snipText"),
+    count = $("snipCount");
   let target = null;
 
   function openSend(p) {
@@ -250,8 +331,12 @@ function initNotes() {
     send.close();
   }
 
-  text.addEventListener("input", () => { count.textContent = String(text.value.length); });
-  text.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submit(); });
+  text.addEventListener("input", () => {
+    count.textContent = String(text.value.length);
+  });
+  text.addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submit();
+  });
   $("snipCancel").addEventListener("click", () => send.close());
   $("snipSend").addEventListener("click", submit);
   return openSend;

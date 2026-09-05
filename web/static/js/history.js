@@ -10,21 +10,45 @@ const live = new Map();
 let entries = load();
 
 export function initHistory() {
-  const modal = $("historyModal"), list = $("historyList"), empty = $("historyEmpty"), clear = $("historyClear");
+  const modal = $("historyModal"),
+    list = $("historyList"),
+    empty = $("historyEmpty"),
+    clear = $("historyClear");
 
   on("transfer:state", (t) => {
-    if (!isDone(t) || t.state === "missed" || entries.some((e) => e.id === t.id)) return;
+    if (
+      !isDone(t) ||
+      t.state === "missed" ||
+      entries.some((e) => e.id === t.id)
+    )
+      return;
     const peer = state.peers.get(t.peerId);
     entries.unshift({
-      id: t.id, dir: t.dir, name: t.name, size: t.size, kind: t.kind, state: t.state, note: t.note, preview: t.preview || undefined, // ponytail: ≤40KB each, 50 max; drop from history if localStorage quota bites
-      peerId: t.peerId, peerName: peer ? peer.name : t.peerName || "that device", peerEmoji: peer ? peer.emoji : "", at: Date.now(), drop: !!t.drop,
+      id: t.id,
+      dir: t.dir,
+      name: t.name,
+      size: t.size,
+      kind: t.kind,
+      state: t.state,
+      note: t.note,
+      preview: t.preview || undefined, // ponytail: ≤40KB each, 50 max; drop from history if localStorage quota bites
+      peerId: t.peerId,
+      peerName: peer ? peer.name : t.peerName || "that device",
+      peerEmoji: peer ? peer.emoji : "",
+      at: Date.now(),
+      drop: !!t.drop,
     });
     entries.length = Math.min(entries.length, MAX);
     save();
-    if (t.state === "done" && t.dir === "send") live.set(t.id, { file: t.file });
+    if (t.state === "done" && t.dir === "send")
+      live.set(t.id, { file: t.file });
     if (t.state === "done" && t.dir === "recv" && t.blobUrl) {
       live.set(t.id, { blobUrl: t.blobUrl });
-      setTimeout(() => { URL.revokeObjectURL(t.blobUrl); live.delete(t.id); emit("history"); }, KEEP_BLOB_MS);
+      setTimeout(() => {
+        URL.revokeObjectURL(t.blobUrl);
+        live.delete(t.id);
+        emit("history");
+      }, KEEP_BLOB_MS);
     }
     emit("history");
   });
@@ -38,28 +62,75 @@ export function initHistory() {
   function row(e) {
     const keep = live.get(e.id);
     const who = `${e.dir === "send" ? "To" : "From"} ${e.peerName}${e.peerEmoji ? " " + e.peerEmoji : ""}`;
-    const outcome = e.state === "done" ? (e.dir === "send" ? (e.drop ? "Left" : "Sent") : "Received") : e.note ? e.note[0].toUpperCase() + e.note.slice(1) : "Failed";
+    const outcome =
+      e.state === "done"
+        ? e.dir === "send"
+          ? e.drop
+            ? "Left"
+            : "Sent"
+          : "Received"
+        : e.note
+          ? e.note[0].toUpperCase() + e.note.slice(1)
+          : "Failed";
     const act = el("span", { class: "tr-act" });
-    if (keep && keep.file) act.append(el("button", { class: "btn btn-ghost", type: "button", onclick: () => again(e, keep.file) }, "Send again"));
-    if (keep && keep.blobUrl) act.append(el("button", { class: "btn btn-ghost", type: "button", onclick: () => saveBlob({ blobUrl: keep.blobUrl, name: e.name }) }, icon("save"), "Save"));
-    return el("li", { class: `tr is-${e.state}` },
+    if (keep && keep.file)
+      act.append(
+        el(
+          "button",
+          {
+            class: "btn btn-ghost",
+            type: "button",
+            onclick: () => again(e, keep.file),
+          },
+          "Send again",
+        ),
+      );
+    if (keep && keep.blobUrl)
+      act.append(
+        el(
+          "button",
+          {
+            class: "btn btn-ghost",
+            type: "button",
+            onclick: () => saveBlob({ blobUrl: keep.blobUrl, name: e.name }),
+          },
+          icon("save"),
+          "Save",
+        ),
+      );
+    return el(
+      "li",
+      { class: `tr is-${e.state}` },
       el("span", { class: "tr-icon" }, thumb(e)),
       el("span", { class: "tr-name", title: e.name, text: e.name }),
-      el("span", { class: "tr-meta", text: `${outcome} · ${who} · ${fmtSize(e.size)} · ${fmtAgo(e.at)}` }),
-      act);
+      el("span", {
+        class: "tr-meta",
+        text: `${outcome} · ${who} · ${fmtSize(e.size)} · ${fmtAgo(e.at)}`,
+      }),
+      act,
+    );
   }
 
   function again(e, file) {
-    if (!state.peers.has(e.peerId)) { toast(`${e.peerName} isn't here anymore`, "bad"); return; }
+    if (!state.peers.has(e.peerId)) {
+      toast(`${e.peerName} isn't here anymore`, "bad");
+      return;
+    }
     queueFiles(e.peerId, [file]);
     modal.close();
   }
 
-  on("history", () => { if (modal.open) render(); });
-  $("historyBtn").addEventListener("click", () => { render(); modal.showModal(); });
+  on("history", () => {
+    if (modal.open) render();
+  });
+  $("historyBtn").addEventListener("click", () => {
+    render();
+    modal.showModal();
+  });
   $("historyClose").addEventListener("click", () => modal.close());
   clear.addEventListener("click", () => {
-    for (const k of live.values()) if (k.blobUrl) URL.revokeObjectURL(k.blobUrl);
+    for (const k of live.values())
+      if (k.blobUrl) URL.revokeObjectURL(k.blobUrl);
     live.clear();
     entries = [];
     save();
@@ -70,10 +141,16 @@ export function initHistory() {
 function load() {
   try {
     const v = JSON.parse(localStorage.getItem(KEY) || "[]");
-    return Array.isArray(v) ? v.filter((e) => e && typeof e.name === "string") : [];
-  } catch { return []; }
+    return Array.isArray(v)
+      ? v.filter((e) => e && typeof e.name === "string")
+      : [];
+  } catch {
+    return [];
+  }
 }
 
 function save() {
-  try { localStorage.setItem(KEY, JSON.stringify(entries)); } catch {}
+  try {
+    localStorage.setItem(KEY, JSON.stringify(entries));
+  } catch {}
 }

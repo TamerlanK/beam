@@ -1,6 +1,10 @@
 (function () {
   var t = "dark";
-  try { t = localStorage.getItem("beam:theme") || (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"); } catch (e) {}
+  try {
+    t =
+      localStorage.getItem("beam:theme") ||
+      (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+  } catch (e) {}
   document.documentElement.dataset.theme = t;
 
   function report(msg) {
@@ -11,8 +15,14 @@
     d.setAttribute("role", "alert");
     d.textContent = "Something broke: " + msg;
     host.appendChild(d);
-    try { host.showPopover(); } catch (e) {}
+    try {
+      host.showPopover();
+    } catch (e) {}
   }
-  addEventListener("error", function (e) { report(e.message || "script error"); });
-  addEventListener("unhandledrejection", function (e) { report((e.reason && e.reason.message) || String(e.reason)); });
+  addEventListener("error", function (e) {
+    report(e.message || "script error");
+  });
+  addEventListener("unhandledrejection", function (e) {
+    report((e.reason && e.reason.message) || String(e.reason));
+  });
 })();

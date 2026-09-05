@@ -18,40 +18,59 @@ const root = document.documentElement;
 const themeBtn = $("themeBtn");
 function setTheme(t, persist) {
   root.dataset.theme = t;
-  themeBtn.setAttribute("aria-label", t === "dark" ? "Switch to light theme" : "Switch to dark theme");
-  if (persist) try { localStorage.setItem("beam:theme", t); } catch {}
+  themeBtn.setAttribute(
+    "aria-label",
+    t === "dark" ? "Switch to light theme" : "Switch to dark theme",
+  );
+  if (persist)
+    try {
+      localStorage.setItem("beam:theme", t);
+    } catch {}
 }
 setTheme(root.dataset.theme, false);
-themeBtn.addEventListener("click", () => setTheme(root.dataset.theme === "dark" ? "light" : "dark", true));
+themeBtn.addEventListener("click", () =>
+  setTheme(root.dataset.theme === "dark" ? "light" : "dark", true),
+);
 matchMedia("(prefers-color-scheme: light)").addEventListener("change", (e) => {
-  try { if (localStorage.getItem("beam:theme")) return; } catch {}
+  try {
+    if (localStorage.getItem("beam:theme")) return;
+  } catch {}
   setTheme(e.matches ? "light" : "dark", false);
 });
 
-if (coarsePointer.matches) $("selfHint").textContent = "Tap a device to send it files";
+if (coarsePointer.matches)
+  $("selfHint").textContent = "Tap a device to send it files";
 
 let hashCode = null;
 let joining = null;
 let claim = parseLink(location.hash);
-const m = location.hash.slice(1).toUpperCase().match(/^[2-9A-HJ-NP-Z]{4}$/);
+const m = location.hash
+  .slice(1)
+  .toUpperCase()
+  .match(/^[2-9A-HJ-NP-Z]{4}$/);
 if (m) hashCode = m[0];
 if (m || claim) history.replaceState(null, "", location.pathname);
-on("joining", (c) => { joining = c; });
+on("joining", (c) => {
+  joining = c;
+});
 
 const ERRORS = {
   "bad-code": "That code isn't active. Check it and try again.",
   "rate-limited": "Too many tries. Wait a moment and try again.",
   "unknown-peer": "That device isn't here anymore.",
   "bad-transfer": "That transfer is no longer valid.",
-  "too-many-connections": "Too many devices from your network are connected. Try again later.",
-  "replaced": "This device connected from another tab, so this one went idle. Reload to take over.",
+  "too-many-connections":
+    "Too many devices from your network are connected. Try again later.",
+  replaced:
+    "This device connected from another tab, so this one went idle. Reload to take over.",
 };
 
 const room = {
   "room-state"(d) {
     state.self = d.self;
     state.drops = d.drops && d.drops.maxBytes > 0 ? d.drops : null;
-    if (!identity().name || !identity().emoji) saveIdentity({ name: d.self.name, emoji: d.self.emoji });
+    if (!identity().name || !identity().emoji)
+      saveIdentity({ name: d.self.name, emoji: d.self.emoji });
     state.peers.clear();
     for (const p of d.peers || []) state.peers.set(p.id, p);
     emit("self");
@@ -102,12 +121,18 @@ const room = {
     state.codeExpires = Date.now() + d.expiresIn * 1000;
     emit("code");
   },
-  snippet(d) { emit("snippet", d); },
+  snippet(d) {
+    emit("snippet", d);
+  },
   rtc: onSignal,
   error(d) {
-    if (d.code === "bad-code" || d.code === "rate-limited") { joining = null; emit("join-failed"); }
+    if (d.code === "bad-code" || d.code === "rate-limited") {
+      joining = null;
+      emit("join-failed");
+    }
     toast(ERRORS[d.code] || d.message || "Something went wrong", "bad");
-    if (d.code === "too-many-connections" || d.code === "replaced") socket.close();
+    if (d.code === "too-many-connections" || d.code === "replaced")
+      socket.close();
   },
 };
 
@@ -122,10 +147,15 @@ function setConn(onLine) {
 
 const socket = createSocket({
   params: () => (device ? { ...identity(), pub: device.pub } : identity()),
-  onOpen() { setConn(true); },
+  onOpen() {
+    setConn(true);
+  },
   onClose(intentional) {
     const wasUp = state.connected;
-    if (!wasUp && !intentional && !warnedDown) { warnedDown = true; toast(`Can't reach the server at ${location.host}, retrying…`, "bad"); }
+    if (!wasUp && !intentional && !warnedDown) {
+      warnedDown = true;
+      toast(`Can't reach the server at ${location.host}, retrying…`, "bad");
+    }
     setConn(false);
     state.self = null;
     state.code = null;
@@ -135,7 +165,13 @@ const socket = createSocket({
     emit("code");
     resetRTC();
     const paused = transfers.pauseAll();
-    if (wasUp && !intentional) toast(paused ? "Connection lost, resuming…" : "Connection lost, reconnecting…", "bad");
+    if (wasUp && !intentional)
+      toast(
+        paused
+          ? "Connection lost, resuming…"
+          : "Connection lost, reconnecting…",
+        "bad",
+      );
   },
   onMessage(type, data) {
     const h = room[type] || transfers.handlers[type];
@@ -159,7 +195,8 @@ initRTC(socket);
 initShare(socket);
 const { openNote } = initDialogs(socket);
 initRadar({ onNote: openNote });
-if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+if ("serviceWorker" in navigator)
+  navigator.serviceWorker.register("sw.js").catch(() => {});
 
 const GATE = {
   held: "This browser already has beam open in another tab. Use that tab, or take over here.",
@@ -167,7 +204,9 @@ const GATE = {
   asking: "Asking the other tab to hand over…",
   busy: "The other tab is in the middle of a transfer. Try again when it finishes.",
 };
-const gateEl = $("tabGate"), gateBody = $("gateBody"), gateBtn = $("gateUse");
+const gateEl = $("tabGate"),
+  gateBody = $("gateBody"),
+  gateBtn = $("gateUse");
 function gate(status) {
   const show = !!status;
   gateEl.hidden = !show;
@@ -179,17 +218,28 @@ function gate(status) {
 gateBtn.addEventListener("click", takeover);
 
 initTabs({
-  onLead() { gate(null); transfers.restore().finally(() => socket.connect()); },
-  onWait(status) { gate(status); },
+  onLead() {
+    gate(null);
+    transfers.restore().finally(() => socket.connect());
+  },
+  onWait(status) {
+    gate(status);
+  },
   onYield() {
     for (const d of document.querySelectorAll("dialog[open]")) d.close();
     return socket.close().then(transfers.release);
   },
   isBusy() {
     if (state.offers.length) return true;
-    for (const t of state.transfers.values()) if (!isDone(t) && t.state !== "paused") return true;
+    for (const t of state.transfers.values())
+      if (!isDone(t) && t.state !== "paused") return true;
     return false;
   },
 });
 
-window.__beam = { state, emit, transfers, tabs: { takeover, isLeader, debug: tabsDebug } };
+window.__beam = {
+  state,
+  emit,
+  transfers,
+  tabs: { takeover, isLeader, debug: tabsDebug },
+};

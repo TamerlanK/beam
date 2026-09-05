@@ -33,7 +33,9 @@ function drop(id) {
   if (!l) return;
   links.delete(id);
   transfers.pauseLink(l);
-  try { l.pc.close(); } catch {}
+  try {
+    l.pc.close();
+  } catch {}
 }
 
 function signal(peerId, payload) {
@@ -44,11 +46,27 @@ function ensure(peerId) {
   if (links.has(peerId)) return links.get(peerId);
   const pc = new RTCPeerConnection({ iceServers: ICE });
   const l = {
-    p2p: true, peerId, pc, dc: null, big: false,
-    polite: state.self.id < peerId, makingOffer: false, ignoreOffer: false,
-    send(type, data) { this.dc.send(JSON.stringify({ v: 1, type, data })); },
-    sendRaw(buf) { this.dc.send(buf); },
-    ready() { return this.dc && this.dc.readyState === "open" && this.dc.bufferedAmount < HIGH; },
+    p2p: true,
+    peerId,
+    pc,
+    dc: null,
+    big: false,
+    polite: state.self.id < peerId,
+    makingOffer: false,
+    ignoreOffer: false,
+    send(type, data) {
+      this.dc.send(JSON.stringify({ v: 1, type, data }));
+    },
+    sendRaw(buf) {
+      this.dc.send(buf);
+    },
+    ready() {
+      return (
+        this.dc &&
+        this.dc.readyState === "open" &&
+        this.dc.bufferedAmount < HIGH
+      );
+    },
     sent() {},
   };
   links.set(peerId, l);
@@ -57,14 +75,18 @@ function ensure(peerId) {
       l.makingOffer = true;
       await pc.setLocalDescription();
       signal(peerId, { description: pc.localDescription });
-    } catch {} finally {
+    } catch {
+    } finally {
       l.makingOffer = false;
     }
   };
-  pc.onicecandidate = ({ candidate }) => { if (candidate) signal(peerId, { candidate }); };
+  pc.onicecandidate = ({ candidate }) => {
+    if (candidate) signal(peerId, { candidate });
+  };
   pc.ondatachannel = ({ channel }) => attach(l, channel);
   pc.onconnectionstatechange = () => {
-    if (pc.connectionState === "failed" || pc.connectionState === "closed") drop(peerId);
+    if (pc.connectionState === "failed" || pc.connectionState === "closed")
+      drop(peerId);
   };
   if (!l.polite) attach(l, pc.createDataChannel("beam"));
   return l;
@@ -83,7 +105,11 @@ function attach(l, dc) {
   dc.onmessage = (ev) => {
     if (typeof ev.data !== "string") return transfers.onChunk(ev.data, l);
     let env;
-    try { env = JSON.parse(ev.data); } catch { return; }
+    try {
+      env = JSON.parse(ev.data);
+    } catch {
+      return;
+    }
     if (env.v !== 1 || !env.type) return;
     const d = env.data || {};
     if (env.type === "transfer-offer") d.from = state.peers.get(l.peerId);
@@ -93,13 +119,20 @@ function attach(l, dc) {
 }
 
 export async function onSignal(d) {
-  if (!state.self || !state.peers.has(d.from) || typeof RTCPeerConnection === "undefined") return;
+  if (
+    !state.self ||
+    !state.peers.has(d.from) ||
+    typeof RTCPeerConnection === "undefined"
+  )
+    return;
   const l = ensure(d.from);
   const { pc } = l;
   const s = d.signal || {};
   try {
     if (s.description) {
-      const collision = s.description.type === "offer" && (l.makingOffer || pc.signalingState !== "stable");
+      const collision =
+        s.description.type === "offer" &&
+        (l.makingOffer || pc.signalingState !== "stable");
       l.ignoreOffer = !l.polite && collision;
       if (l.ignoreOffer) return;
       await pc.setRemoteDescription(s.description);
@@ -108,7 +141,11 @@ export async function onSignal(d) {
         signal(d.from, { description: pc.localDescription });
       }
     } else if (s.candidate) {
-      try { await pc.addIceCandidate(s.candidate); } catch (e) { if (!l.ignoreOffer) throw e; }
+      try {
+        await pc.addIceCandidate(s.candidate);
+      } catch (e) {
+        if (!l.ignoreOffer) throw e;
+      }
     }
   } catch {}
 }

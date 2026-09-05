@@ -3,10 +3,54 @@ import { uuid } from "./util.js";
 const KEY = "beam:identity";
 
 export const EMOJIS = [
-  "🦊", "🐼", "🦉", "🐙", "🦄", "🐢", "🐝", "🦋", "🐬", "🦩", "🐨", "🦥",
-  "🐸", "🦜", "🐺", "🦔", "🦁", "🐯", "🐻", "🐰", "🦊", "🐧", "🦈", "🐳",
-  "🦅", "🦆", "🦢", "🦡", "🦫", "🦌", "🐉", "🦎", "🦙", "🦦", "🦝", "🦭",
-  "🌙", "⚡", "🔥", "🌊", "🌵", "🍄", "🎧", "🚀", "🛸", "🎲", "🧭", "🔮",
+  "🦊",
+  "🐼",
+  "🦉",
+  "🐙",
+  "🦄",
+  "🐢",
+  "🐝",
+  "🦋",
+  "🐬",
+  "🦩",
+  "🐨",
+  "🦥",
+  "🐸",
+  "🦜",
+  "🐺",
+  "🦔",
+  "🦁",
+  "🐯",
+  "🐻",
+  "🐰",
+  "🦊",
+  "🐧",
+  "🦈",
+  "🐳",
+  "🦅",
+  "🦆",
+  "🦢",
+  "🦡",
+  "🦫",
+  "🦌",
+  "🐉",
+  "🦎",
+  "🦙",
+  "🦦",
+  "🦝",
+  "🦭",
+  "🌙",
+  "⚡",
+  "🔥",
+  "🌊",
+  "🌵",
+  "🍄",
+  "🎧",
+  "🚀",
+  "🛸",
+  "🎲",
+  "🧭",
+  "🔮",
 ];
 
 let cached = null;
@@ -14,7 +58,9 @@ let cached = null;
 export function identity() {
   if (cached) return cached;
   let stored = {};
-  try { stored = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch {}
+  try {
+    stored = JSON.parse(localStorage.getItem(KEY) || "{}");
+  } catch {}
   cached = {
     id: typeof stored.id === "string" && stored.id ? stored.id : uuid(),
     name: typeof stored.name === "string" ? stored.name : "",
@@ -30,5 +76,7 @@ export function saveIdentity(patch) {
 }
 
 function persist() {
-  try { localStorage.setItem(KEY, JSON.stringify(cached)); } catch {}
+  try {
+    localStorage.setItem(KEY, JSON.stringify(cached));
+  } catch {}
 }

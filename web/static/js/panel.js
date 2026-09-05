@@ -1,6 +1,16 @@
 import { state, on, emit, isDone, peerName } from "./state.js";
 import { $, el, icon, thumb, fmtSize, fmtRate, fmtLeft } from "./util.js";
-import { rateOf, etaOf, cancel, saveBlob, canLeave, leaveFor, dismiss, resumeClick, saveClick } from "./transfers.js";
+import {
+  rateOf,
+  etaOf,
+  cancel,
+  saveBlob,
+  canLeave,
+  leaveFor,
+  dismiss,
+  resumeClick,
+  saveClick,
+} from "./transfers.js";
 import { ttlText } from "./drops.js";
 
 const mobile = matchMedia("(max-width: 640px)");
@@ -8,14 +18,24 @@ const rows = new Map();
 let panel, toggle, sum, bar, list, collapsed;
 
 export function initPanel() {
-  panel = $("panel"); toggle = $("panelToggle"); sum = $("panelSum"); bar = $("panelBar"); list = $("panelList");
+  panel = $("panel");
+  toggle = $("panelToggle");
+  sum = $("panelSum");
+  bar = $("panelBar");
+  list = $("panelList");
   setCollapsed(mobile.matches);
   toggle.addEventListener("click", () => setCollapsed(!collapsed));
   mobile.addEventListener("change", () => setCollapsed(collapsed));
 
   on("transfer:add", addRow);
-  on("transfer:progress", (t) => { updateRow(t); overall(); });
-  on("transfer:state", (t) => { updateRow(t); overall(); });
+  on("transfer:progress", (t) => {
+    updateRow(t);
+    overall();
+  });
+  on("transfer:state", (t) => {
+    updateRow(t);
+    overall();
+  });
   on("transfer:remove", removeRow);
 }
 
@@ -53,23 +73,48 @@ function updateRow(t) {
   const fill = li.querySelector(".tr-bar i");
   li.className = `tr is-${t.state}`;
   act.replaceChildren();
-  li.querySelector(".tr-tags").textContent = [t.sas && `🔒 ${t.sas}`, t.link && t.link.p2p && "direct"].filter(Boolean).join(" · ");
+  li.querySelector(".tr-tags").textContent = [
+    t.sas && `🔒 ${t.sas}`,
+    t.link && t.link.p2p && "direct",
+  ]
+    .filter(Boolean)
+    .join(" · ");
   graph(li.querySelector(".tr-graph"), t.hist);
 
   switch (t.state) {
     case "offered":
-      meta.textContent = t.drop ? "Setting up the drop…" : `Waiting for ${who} to accept`;
+      meta.textContent = t.drop
+        ? "Setting up the drop…"
+        : `Waiting for ${who} to accept`;
       if (canLeave(t)) act.append(leaveBtn(t));
       act.append(cancelBtn(t));
       break;
     case "missed":
       meta.textContent = `No answer from ${who}`;
       if (canLeave(t)) act.append(leaveBtn(t));
-      act.append(el("button", { class: "btn btn-ghost btn-icon", type: "button", "aria-label": "Dismiss", title: "Dismiss", onclick: () => dismiss(t) }, icon("x")));
+      act.append(
+        el(
+          "button",
+          {
+            class: "btn btn-ghost btn-icon",
+            type: "button",
+            "aria-label": "Dismiss",
+            title: "Dismiss",
+            onclick: () => dismiss(t),
+          },
+          icon("x"),
+        ),
+      );
       break;
     case "active": {
-      const rate = fmtRate(rateOf(t)), left = fmtLeft(etaOf(t));
-      const head = t.drop && t.dir === "send" ? (t.drop === "link" ? "Uploading for the link" : `Leaving for ${who}`) : `${t.dir === "send" ? "To" : "From"} ${who}`;
+      const rate = fmtRate(rateOf(t)),
+        left = fmtLeft(etaOf(t));
+      const head =
+        t.drop && t.dir === "send"
+          ? t.drop === "link"
+            ? "Uploading for the link"
+            : `Leaving for ${who}`
+          : `${t.dir === "send" ? "To" : "From"} ${who}`;
       const parts = [head, `${fmtSize(t.bytes)} of ${fmtSize(t.size)}`];
       if (rate) parts.push(rate);
       if (left) parts.push(left);
@@ -79,28 +124,97 @@ function updateRow(t) {
       break;
     }
     case "paused": {
-      const why = t.needsClick ? "needs your OK to reopen the file" : t.durable ? `resumes when ${who} is back` : "resuming…";
+      const why = t.needsClick
+        ? "needs your OK to reopen the file"
+        : t.durable
+          ? `resumes when ${who} is back`
+          : "resuming…";
       meta.textContent = `Paused · ${fmtSize(t.bytes)} of ${fmtSize(t.size)} · ${why}`;
       fill.style.width = `${t.size ? (t.bytes / t.size) * 100 : 0}%`;
-      if (t.needsClick) act.append(el("button", { class: "btn btn-ghost", type: "button", onclick: () => resumeClick(t) }, icon("up"), "Resume"));
+      if (t.needsClick)
+        act.append(
+          el(
+            "button",
+            {
+              class: "btn btn-ghost",
+              type: "button",
+              onclick: () => resumeClick(t),
+            },
+            icon("up"),
+            "Resume",
+          ),
+        );
       act.append(cancelBtn(t));
       break;
     }
     case "done":
       if (t.drop && t.dir === "send") {
-        meta.textContent = t.note === "picked-up" ? `Picked up${t.drop === "link" ? "" : ` by ${who}`}`
-          : t.note === "expired" ? "Expired before pickup"
-          : t.note === "canceled" ? (t.drop === "link" ? "Declined" : `Declined by ${who}`)
-          : t.drop === "link" ? `Link ready · one pickup within ${ttlText(t.ttl)}` : `Left for ${who} · they have ${ttlText(t.ttl)}`;
-        if (t.drop === "link" && !t.note) act.append(el("button", { class: "btn btn-ghost", type: "button", onclick: () => emit("drop:link", t) }, icon("copy"), "Show link"));
+        meta.textContent =
+          t.note === "picked-up"
+            ? `Picked up${t.drop === "link" ? "" : ` by ${who}`}`
+            : t.note === "expired"
+              ? "Expired before pickup"
+              : t.note === "canceled"
+                ? t.drop === "link"
+                  ? "Declined"
+                  : `Declined by ${who}`
+                : t.drop === "link"
+                  ? `Link ready · one pickup within ${ttlText(t.ttl)}`
+                  : `Left for ${who} · they have ${ttlText(t.ttl)}`;
+        if (t.drop === "link" && !t.note)
+          act.append(
+            el(
+              "button",
+              {
+                class: "btn btn-ghost",
+                type: "button",
+                onclick: () => emit("drop:link", t),
+              },
+              icon("copy"),
+              "Show link",
+            ),
+          );
         break;
       }
-      meta.textContent = t.dir === "send" ? `Sent to ${who}` : t.saved ? "Saved" : t.save ? "Received · one click to finish saving into your file" : "Saved to your downloads";
-      if (t.save) act.append(el("button", { class: "btn btn-primary", type: "button", onclick: () => saveClick(t) }, icon("save"), "Save file"));
-      if (t.blobUrl) act.append(el("button", { class: "btn btn-ghost", type: "button", onclick: () => saveBlob(t) }, icon("save"), "Save again"));
+      meta.textContent =
+        t.dir === "send"
+          ? `Sent to ${who}`
+          : t.saved
+            ? "Saved"
+            : t.save
+              ? "Received · one click to finish saving into your file"
+              : "Saved to your downloads";
+      if (t.save)
+        act.append(
+          el(
+            "button",
+            {
+              class: "btn btn-primary",
+              type: "button",
+              onclick: () => saveClick(t),
+            },
+            icon("save"),
+            "Save file",
+          ),
+        );
+      if (t.blobUrl)
+        act.append(
+          el(
+            "button",
+            {
+              class: "btn btn-ghost",
+              type: "button",
+              onclick: () => saveBlob(t),
+            },
+            icon("save"),
+            "Save again",
+          ),
+        );
       break;
     default:
-      meta.textContent = t.note ? t.note[0].toUpperCase() + t.note.slice(1) : "Failed";
+      meta.textContent = t.note
+        ? t.note[0].toUpperCase() + t.note.slice(1)
+        : "Failed";
   }
 }
 
@@ -108,17 +222,42 @@ function graph(svg, hist) {
   svg.toggleAttribute("hidden", hist.length < 2);
   if (hist.length < 2) return;
   const max = Math.max(1, ...hist);
-  const pts = hist.map((v, i) => `${((i / (hist.length - 1)) * 100).toFixed(1)},${(23 - (v / max) * 21).toFixed(1)}`).join(" ");
+  const pts = hist
+    .map(
+      (v, i) =>
+        `${((i / (hist.length - 1)) * 100).toFixed(1)},${(23 - (v / max) * 21).toFixed(1)}`,
+    )
+    .join(" ");
   svg.querySelector("polyline").setAttribute("points", pts);
   svg.querySelector("polygon").setAttribute("points", `0,24 ${pts} 100,24`);
 }
 
 function leaveBtn(t) {
-  return el("button", { class: "btn btn-ghost", type: "button", title: "Let the server hold it until they pick it up", onclick: () => leaveFor(t) }, icon("clock"), "Leave for later");
+  return el(
+    "button",
+    {
+      class: "btn btn-ghost",
+      type: "button",
+      title: "Let the server hold it until they pick it up",
+      onclick: () => leaveFor(t),
+    },
+    icon("clock"),
+    "Leave for later",
+  );
 }
 
 function cancelBtn(t) {
-  return el("button", { class: "btn btn-ghost btn-icon", type: "button", "aria-label": "Cancel", title: "Cancel", onclick: () => cancel(t) }, icon("x"));
+  return el(
+    "button",
+    {
+      class: "btn btn-ghost btn-icon",
+      type: "button",
+      "aria-label": "Cancel",
+      title: "Cancel",
+      onclick: () => cancel(t),
+    },
+    icon("x"),
+  );
 }
 
 function removeRow(t) {
@@ -138,7 +277,10 @@ function removeRow(t) {
 }
 
 function overall() {
-  let live = 0, total = 0, done = 0, current = null;
+  let live = 0,
+    total = 0,
+    done = 0,
+    current = null;
   for (const t of state.transfers.values()) {
     if (isDone(t)) continue;
     live++;

@@ -25,6 +25,10 @@ export function peerName(id) {
   return p ? p.name : "that device";
 }
 
-export const isDone = (t) => t.state === "done" || t.state === "failed" || t.state === "declined" || t.state === "missed";
+export const isDone = (t) =>
+  t.state === "done" ||
+  t.state === "failed" ||
+  t.state === "declined" ||
+  t.state === "missed";
 
 export const toast = (msg, kind = "info") => emit("toast", { msg, kind });

@@ -1,236 +1,480 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en" data-theme="dark">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="color-scheme" content="dark light">
-  <meta name="theme-color" content="#05070d" media="(prefers-color-scheme: dark)">
-  <meta name="theme-color" content="#e6e9f3" media="(prefers-color-scheme: light)">
-  <title>beam — drop files between devices</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='6' fill='%23F5B84B'/%3E%3Ccircle cx='16' cy='16' r='11' fill='none' stroke='%23F5B84B' stroke-opacity='.45' stroke-width='2'/%3E%3Ccircle cx='16' cy='16' r='15' fill='none' stroke='%23F5B84B' stroke-opacity='.2' stroke-width='1.5'/%3E%3C/svg%3E">
-  <script src="js/theme.js"></script>
-  <link rel="manifest" href="manifest.json">
-  <link rel="apple-touch-icon" href="icon-192.png">
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="beam">
-  <link rel="stylesheet" href="style.css">
-</head>
-<body>
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <meta name="color-scheme" content="dark light" />
+    <meta
+      name="theme-color"
+      content="#05070d"
+      media="(prefers-color-scheme: dark)"
+    />
+    <meta
+      name="theme-color"
+      content="#e6e9f3"
+      media="(prefers-color-scheme: light)"
+    />
+    <title>beam — drop files between devices</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='6' fill='%23F5B84B'/%3E%3Ccircle cx='16' cy='16' r='11' fill='none' stroke='%23F5B84B' stroke-opacity='.45' stroke-width='2'/%3E%3Ccircle cx='16' cy='16' r='15' fill='none' stroke='%23F5B84B' stroke-opacity='.2' stroke-width='1.5'/%3E%3C/svg%3E"
+    />
+    <script src="js/theme.js"></script>
+    <link rel="manifest" href="manifest.json" />
+    <link rel="apple-touch-icon" href="icon-192.png" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="beam" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="bar">
+        <a class="brand" href="./" aria-label="beam"
+          ><span class="brand-mark" aria-hidden="true"></span>beam</a
+        >
+        <div class="bar-end">
+          <button
+            id="codePill"
+            class="pill"
+            type="button"
+            hidden
+            title="Show the code and QR"
+          >
+            <span class="pill-dot" aria-hidden="true"></span
+            ><span class="pill-label">Code</span><b id="codePillText"></b>
+          </button>
+          <button
+            id="historyBtn"
+            class="btn btn-ghost btn-icon"
+            type="button"
+            aria-label="Transfer history"
+            title="History"
+          >
+            <svg class="i" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7.5V12l3 2" />
+            </svg>
+          </button>
+          <button
+            id="themeBtn"
+            class="btn btn-ghost btn-icon"
+            type="button"
+            aria-label="Switch to light theme"
+          >
+            <svg class="i i-sun" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="4" />
+              <path
+                d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"
+              />
+            </svg>
+            <svg class="i i-moon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a7 7 0 1 0 10.5 10.5Z" />
+            </svg>
+          </button>
+          <button
+            id="netBtn"
+            class="btn btn-ghost"
+            type="button"
+            aria-label="Connect a device on another network"
+          >
+            <svg class="i" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" />
+            </svg>
+            <span>Connect a device</span>
+          </button>
+        </div>
+      </header>
 
-<div class="app">
-  <header class="bar">
-    <a class="brand" href="./" aria-label="beam"><span class="brand-mark" aria-hidden="true"></span>beam</a>
-    <div class="bar-end">
-      <button id="codePill" class="pill" type="button" hidden title="Show the code and QR">
-        <span class="pill-dot" aria-hidden="true"></span><span class="pill-label">Code</span><b id="codePillText"></b>
-      </button>
-      <button id="historyBtn" class="btn btn-ghost btn-icon" type="button" aria-label="Transfer history" title="History">
-        <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7.5V12l3 2"/></svg>
-      </button>
-      <button id="themeBtn" class="btn btn-ghost btn-icon" type="button" aria-label="Switch to light theme">
-        <svg class="i i-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
-        <svg class="i i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a7 7 0 1 0 10.5 10.5Z"/></svg>
-      </button>
-      <button id="netBtn" class="btn btn-ghost" type="button" aria-label="Connect a device on another network">
-        <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
-        <span>Connect a device</span>
-      </button>
+      <main class="stage">
+        <section id="field" class="field" aria-label="Nearby devices">
+          <div class="radar" aria-hidden="true">
+            <svg id="rings" class="rings"></svg>
+            <div id="sweep" class="sweep"></div>
+            <div class="pulse"></div>
+            <div class="pulse p2"></div>
+          </div>
+          <svg id="beams" class="beams" aria-hidden="true"></svg>
+          <div id="peers" class="peers" role="list"></div>
+
+          <div id="dropHint" class="drop-hint" aria-hidden="true">
+            <span
+              >Drop on a device to send now, or anywhere to pick a device
+              after</span
+            >
+          </div>
+
+          <div id="shareBar" class="share-bar" role="status" hidden>
+            <span
+              ><span id="shareVerb">Tap a device to send</span>
+              <b id="shareWhat"></b
+            ></span>
+            <button
+              id="shareLink"
+              class="btn btn-ghost"
+              type="button"
+              hidden
+              title="Leave it on the server for anyone with the link to pick up once"
+            >
+              Get a link
+            </button>
+            <button id="shareCancel" class="btn btn-ghost" type="button">
+              Cancel
+            </button>
+          </div>
+
+          <div class="self">
+            <button
+              id="selfBtn"
+              class="self-btn"
+              type="button"
+              aria-label="Edit your name and avatar"
+            >
+              <span id="selfNode" class="self-node" aria-hidden="true"
+                ><span id="selfEmoji"></span
+              ></span>
+              <span class="self-edit" aria-hidden="true"
+                ><svg class="i" viewBox="0 0 24 24">
+                  <path d="M4 20h4L18 10l-4-4L4 16zM13 7l4 4" /></svg
+              ></span>
+            </button>
+            <p class="self-meta">
+              <span
+                id="connState"
+                class="conn"
+                data-state="off"
+                role="status"
+                aria-label="Connecting"
+              ></span>
+              <span
+                >You are
+                <strong id="selfName" class="self-name">…</strong></span
+              >
+            </p>
+            <p id="selfHint" class="self-hint">
+              Drop files on a device, or anywhere to choose one after
+            </p>
+          </div>
+        </section>
+      </main>
+      <footer class="foot"><a href="privacy">Privacy</a></footer>
     </div>
-  </header>
 
-  <main class="stage">
-    <section id="field" class="field" aria-label="Nearby devices">
-      <div class="radar" aria-hidden="true">
-        <svg id="rings" class="rings"></svg>
-        <div id="sweep" class="sweep"></div>
-        <div class="pulse"></div>
-        <div class="pulse p2"></div>
-      </div>
-      <svg id="beams" class="beams" aria-hidden="true"></svg>
-      <div id="peers" class="peers" role="list"></div>
+    <aside id="panel" class="panel" hidden aria-label="Transfers">
+      <button
+        id="panelToggle"
+        class="panel-head"
+        type="button"
+        aria-expanded="true"
+        aria-controls="panelList"
+      >
+        <span class="panel-title">Transfers</span>
+        <span id="panelSum" class="panel-sum"></span>
+        <svg class="i panel-chev" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M6 9l6 6 6-6" />
+        </svg>
+      </button>
+      <div class="panel-bar" aria-hidden="true"><i id="panelBar"></i></div>
+      <ul id="panelList" class="panel-list"></ul>
+    </aside>
 
-
-      <div id="dropHint" class="drop-hint" aria-hidden="true"><span>Drop on a device to send now, or anywhere to pick a device after</span></div>
-
-      <div id="shareBar" class="share-bar" role="status" hidden>
-        <span><span id="shareVerb">Tap a device to send</span> <b id="shareWhat"></b></span>
-        <button id="shareLink" class="btn btn-ghost" type="button" hidden title="Leave it on the server for anyone with the link to pick up once">Get a link</button>
-        <button id="shareCancel" class="btn btn-ghost" type="button">Cancel</button>
-      </div>
-
-      <div class="self">
-        <button id="selfBtn" class="self-btn" type="button" aria-label="Edit your name and avatar">
-          <span id="selfNode" class="self-node" aria-hidden="true"><span id="selfEmoji"></span></span>
-          <span class="self-edit" aria-hidden="true"><svg class="i" viewBox="0 0 24 24"><path d="M4 20h4L18 10l-4-4L4 16zM13 7l4 4"/></svg></span>
+    <dialog id="offerModal" class="modal offer" aria-labelledby="offerTitle">
+      <div id="offerEmoji" class="offer-from" aria-hidden="true"></div>
+      <h2 id="offerTitle" class="modal-title">
+        <b id="offerSender"></b> <span id="offerVerb">wants to send you</span>
+        <span id="offerWhat">a file</span>
+      </h2>
+      <img id="offerPreview" class="offer-preview" alt="" hidden />
+      <ul id="offerFiles" class="offer-files"></ul>
+      <div class="modal-actions">
+        <button id="offerDecline" class="btn btn-ghost" type="button">
+          Decline
         </button>
-        <p class="self-meta">
-          <span id="connState" class="conn" data-state="off" role="status" aria-label="Connecting"></span>
-          <span>You are <strong id="selfName" class="self-name">…</strong></span>
-        </p>
-        <p id="selfHint" class="self-hint">Drop files on a device, or anywhere to choose one after</p>
+        <button
+          id="offerAccept"
+          class="btn btn-primary"
+          type="button"
+          autofocus
+        >
+          Accept
+        </button>
       </div>
-    </section>
-  </main>
-  <footer class="foot"><a href="privacy">Privacy</a></footer>
-</div>
+      <div class="offer-timer" aria-hidden="true">
+        <i id="offerTimer"></i><span id="offerLeft"></span>
+      </div>
+      <p id="offerQueue" class="offer-queue" hidden></p>
+    </dialog>
 
-<aside id="panel" class="panel" hidden aria-label="Transfers">
-  <button id="panelToggle" class="panel-head" type="button" aria-expanded="true" aria-controls="panelList">
-    <span class="panel-title">Transfers</span>
-    <span id="panelSum" class="panel-sum"></span>
-    <svg class="i panel-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
-  </button>
-  <div class="panel-bar" aria-hidden="true"><i id="panelBar"></i></div>
-  <ul id="panelList" class="panel-list"></ul>
-</aside>
-
-<dialog id="offerModal" class="modal offer" aria-labelledby="offerTitle">
-  <div id="offerEmoji" class="offer-from" aria-hidden="true"></div>
-  <h2 id="offerTitle" class="modal-title"><b id="offerSender"></b> <span id="offerVerb">wants to send you</span> <span id="offerWhat">a file</span></h2>
-  <img id="offerPreview" class="offer-preview" alt="" hidden>
-  <ul id="offerFiles" class="offer-files"></ul>
-  <div class="modal-actions">
-    <button id="offerDecline" class="btn btn-ghost" type="button">Decline</button>
-    <button id="offerAccept" class="btn btn-primary" type="button" autofocus>Accept</button>
-  </div>
-  <div class="offer-timer" aria-hidden="true"><i id="offerTimer"></i><span id="offerLeft"></span></div>
-  <p id="offerQueue" class="offer-queue" hidden></p>
-</dialog>
-
-<dialog id="netModal" class="modal" aria-labelledby="netTitle">
-  <h2 id="netTitle" class="modal-title">Connect a device on another network</h2>
-  <p class="modal-lead">On the other device, open beam and enter this code, or scan the QR.</p>
-  <div class="code-block">
-    <output id="roomCode" class="code is-loading" aria-live="polite" aria-label="Your code"><b></b><b></b><b></b><b></b></output>
-    <div id="qr" class="qr" role="img" aria-label="QR code to join this room"></div>
-  </div>
-  <p class="code-note">
-    <span>Expires in <b id="codeLeft" class="code-left">10:00</b> unless someone joins</span>
-    <button id="copyLink" class="btn btn-ghost" type="button">
-      <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7L11.5 6.8"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.5-1.5"/></svg>
-      Copy link
-    </button>
-  </p>
-  <div class="or" aria-hidden="true">or enter a code from another device</div>
-  <form id="joinForm" class="join-row">
-    <input id="joinInput" class="join-input" maxlength="4" autocomplete="off" autocapitalize="characters" inputmode="text"
-           spellcheck="false" placeholder="ABCD" aria-label="Code from another device">
-    <button class="btn btn-primary" type="submit">Join</button>
-  </form>
-  <button id="netClose" class="modal-x" type="button" aria-label="Close">
-    <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
-  </button>
-</dialog>
-
-<dialog id="dropModal" class="modal" aria-labelledby="dropTitle">
-  <h2 id="dropTitle" class="modal-title">Link ready for <b id="dropLinkName"></b></h2>
-  <p class="modal-lead">Anyone with this link can pick the file up once, within <b id="dropLinkTTL"></b>. The key is in the link itself and never reaches the server, so share it the way you would share the file.</p>
-  <div class="code-block">
-    <input id="dropLinkInput" class="link-input" readonly aria-label="Pickup link" spellcheck="false">
-    <div id="dropLinkQr" class="qr" role="img" aria-label="QR code of the pickup link"></div>
-  </div>
-  <div class="modal-actions">
-    <button id="dropLinkShare" class="btn btn-ghost" type="button" hidden>Share…</button>
-    <button id="dropLinkCopy" class="btn btn-primary" type="button">
-      <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 9h10v10H9zM5 15V5h10"/></svg>
-      Copy link
-    </button>
-  </div>
-  <button id="dropLinkClose" class="modal-x" type="button" aria-label="Close">
-    <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
-  </button>
-</dialog>
-
-<dialog id="historyModal" class="modal modal-wide" aria-labelledby="historyTitle">
-  <h2 id="historyTitle" class="modal-title">History</h2>
-  <p class="modal-lead">Files stay on the device that received them. This list is only on this browser.</p>
-  <p id="historyEmpty" class="history-empty">Nothing yet. Files you send or receive show up here.</p>
-  <ul id="historyList" class="history-list"></ul>
-  <div class="modal-actions">
-    <button id="historyClear" class="btn btn-ghost" type="button" hidden>Clear</button>
-    <button id="historyClose" class="btn btn-primary" type="button">Close</button>
-  </div>
-</dialog>
-
-<dialog id="profileModal" class="modal" aria-labelledby="profileTitle">
-  <h2 id="profileTitle" class="modal-title">Your device</h2>
-  <p class="modal-lead">This is how other devices see you. It stays the same in this browser.</p>
-  <div class="prof-row">
-    <span id="profPreview" class="prof-preview" aria-hidden="true"></span>
-    <span class="prof-field">
-      <input id="profName" class="prof-name" maxlength="32" autocomplete="nickname" spellcheck="false" aria-label="Device name" placeholder="Device name" aria-describedby="profCount">
-      <span id="profCount" class="prof-count" aria-live="polite">0 / 32</span>
-    </span>
-  </div>
-  <div id="profEmojis" class="emoji-grid" role="radiogroup" aria-label="Avatar"></div>
-  <div class="modal-actions">
-    <button id="profCancel" class="btn btn-ghost" type="button">Cancel</button>
-    <button id="profSave" class="btn btn-primary" type="button">Save</button>
-  </div>
-</dialog>
-
-<dialog id="snipModal" class="modal" aria-labelledby="snipTitle">
-  <h2 id="snipTitle" class="modal-title">Send a note to <b id="snipTo"></b></h2>
-  <p class="modal-lead">A link, an address, a one‑time code. It shows up on their screen right away.</p>
-  <textarea id="snipText" class="snip-text" rows="4" maxlength="8000" placeholder="Type or paste here" aria-label="Note"></textarea>
-  <p class="snip-count"><span id="snipCount">0</span> / 8000</p>
-  <div class="modal-actions">
-    <button id="snipCancel" class="btn btn-ghost" type="button">Cancel</button>
-    <button id="snipSend" class="btn btn-primary" type="button">Send note</button>
-  </div>
-</dialog>
-
-<div id="tabGate" class="gate" role="dialog" aria-modal="true" aria-labelledby="gateTitle" hidden>
-  <div class="gate-card">
-    <span class="brand-mark" aria-hidden="true"></span>
-    <h2 id="gateTitle" class="modal-title">beam is open in another tab</h2>
-    <p id="gateBody" class="modal-lead"></p>
-    <div class="modal-actions">
-      <button id="gateUse" class="btn btn-primary" type="button">Use this tab instead</button>
-    </div>
-  </div>
-</div>
-
-<div id="toasts" class="toasts" aria-live="polite" popover="manual"></div>
-<input type="file" id="filePicker" multiple hidden>
-
-<template id="peerT">
-  <div class="peer" role="listitem">
-    <div class="peer-body">
-      <button class="peer-hit" type="button">
-        <span class="avatar">
-          <svg class="ring" viewBox="0 0 100 100" aria-hidden="true">
-            <circle class="ring-track" cx="50" cy="50" r="46"></circle>
-            <circle class="ring-fill" cx="50" cy="50" r="46"></circle>
+    <dialog id="netModal" class="modal" aria-labelledby="netTitle">
+      <h2 id="netTitle" class="modal-title">
+        Connect a device on another network
+      </h2>
+      <p class="modal-lead">
+        On the other device, open beam and enter this code, or scan the QR.
+      </p>
+      <div class="code-block">
+        <output
+          id="roomCode"
+          class="code is-loading"
+          aria-live="polite"
+          aria-label="Your code"
+          ><b></b><b></b><b></b><b></b
+        ></output>
+        <div
+          id="qr"
+          class="qr"
+          role="img"
+          aria-label="QR code to join this room"
+        ></div>
+      </div>
+      <p class="code-note">
+        <span
+          >Expires in <b id="codeLeft" class="code-left">10:00</b> unless
+          someone joins</span
+        >
+        <button id="copyLink" class="btn btn-ghost" type="button">
+          <svg class="i" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7L11.5 6.8" />
+            <path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.5-1.5" />
           </svg>
-          <span class="peer-emoji" aria-hidden="true"></span>
-          <span class="peer-pct" hidden></span>
-          <span class="peer-dir" aria-hidden="true"></span>
+          Copy link
+        </button>
+      </p>
+      <div class="or" aria-hidden="true">
+        or enter a code from another device
+      </div>
+      <form id="joinForm" class="join-row">
+        <input
+          id="joinInput"
+          class="join-input"
+          maxlength="4"
+          autocomplete="off"
+          autocapitalize="characters"
+          inputmode="text"
+          spellcheck="false"
+          placeholder="ABCD"
+          aria-label="Code from another device"
+        />
+        <button class="btn btn-primary" type="submit">Join</button>
+      </form>
+      <button id="netClose" class="modal-x" type="button" aria-label="Close">
+        <svg class="i" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M6 6l12 12M18 6L6 18" />
+        </svg>
+      </button>
+    </dialog>
+
+    <dialog id="dropModal" class="modal" aria-labelledby="dropTitle">
+      <h2 id="dropTitle" class="modal-title">
+        Link ready for <b id="dropLinkName"></b>
+      </h2>
+      <p class="modal-lead">
+        Anyone with this link can pick the file up once, within
+        <b id="dropLinkTTL"></b>. The key is in the link itself and never
+        reaches the server, so share it the way you would share the file.
+      </p>
+      <div class="code-block">
+        <input
+          id="dropLinkInput"
+          class="link-input"
+          readonly
+          aria-label="Pickup link"
+          spellcheck="false"
+        />
+        <div
+          id="dropLinkQr"
+          class="qr"
+          role="img"
+          aria-label="QR code of the pickup link"
+        ></div>
+      </div>
+      <div class="modal-actions">
+        <button id="dropLinkShare" class="btn btn-ghost" type="button" hidden>
+          Share…
+        </button>
+        <button id="dropLinkCopy" class="btn btn-primary" type="button">
+          <svg class="i" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M9 9h10v10H9zM5 15V5h10" />
+          </svg>
+          Copy link
+        </button>
+      </div>
+      <button
+        id="dropLinkClose"
+        class="modal-x"
+        type="button"
+        aria-label="Close"
+      >
+        <svg class="i" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M6 6l12 12M18 6L6 18" />
+        </svg>
+      </button>
+    </dialog>
+
+    <dialog
+      id="historyModal"
+      class="modal modal-wide"
+      aria-labelledby="historyTitle"
+    >
+      <h2 id="historyTitle" class="modal-title">History</h2>
+      <p class="modal-lead">
+        Files stay on the device that received them. This list is only on this
+        browser.
+      </p>
+      <p id="historyEmpty" class="history-empty">
+        Nothing yet. Files you send or receive show up here.
+      </p>
+      <ul id="historyList" class="history-list"></ul>
+      <div class="modal-actions">
+        <button id="historyClear" class="btn btn-ghost" type="button" hidden>
+          Clear
+        </button>
+        <button id="historyClose" class="btn btn-primary" type="button">
+          Close
+        </button>
+      </div>
+    </dialog>
+
+    <dialog id="profileModal" class="modal" aria-labelledby="profileTitle">
+      <h2 id="profileTitle" class="modal-title">Your device</h2>
+      <p class="modal-lead">
+        This is how other devices see you. It stays the same in this browser.
+      </p>
+      <div class="prof-row">
+        <span id="profPreview" class="prof-preview" aria-hidden="true"></span>
+        <span class="prof-field">
+          <input
+            id="profName"
+            class="prof-name"
+            maxlength="32"
+            autocomplete="nickname"
+            spellcheck="false"
+            aria-label="Device name"
+            placeholder="Device name"
+            aria-describedby="profCount"
+          />
+          <span id="profCount" class="prof-count" aria-live="polite"
+            >0 / 32</span
+          >
         </span>
-        <span class="peer-name"></span>
-        <span class="peer-sub"></span>
-      </button>
-      <button class="note-btn" type="button">
-        <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/><path d="M8 9h8M8 12.5h5"/></svg>
-      </button>
+      </div>
+      <div
+        id="profEmojis"
+        class="emoji-grid"
+        role="radiogroup"
+        aria-label="Avatar"
+      ></div>
+      <div class="modal-actions">
+        <button id="profCancel" class="btn btn-ghost" type="button">
+          Cancel
+        </button>
+        <button id="profSave" class="btn btn-primary" type="button">
+          Save
+        </button>
+      </div>
+    </dialog>
+
+    <dialog id="snipModal" class="modal" aria-labelledby="snipTitle">
+      <h2 id="snipTitle" class="modal-title">
+        Send a note to <b id="snipTo"></b>
+      </h2>
+      <p class="modal-lead">
+        A link, an address, a one‑time code. It shows up on their screen right
+        away.
+      </p>
+      <textarea
+        id="snipText"
+        class="snip-text"
+        rows="4"
+        maxlength="8000"
+        placeholder="Type or paste here"
+        aria-label="Note"
+      ></textarea>
+      <p class="snip-count"><span id="snipCount">0</span> / 8000</p>
+      <div class="modal-actions">
+        <button id="snipCancel" class="btn btn-ghost" type="button">
+          Cancel
+        </button>
+        <button id="snipSend" class="btn btn-primary" type="button">
+          Send note
+        </button>
+      </div>
+    </dialog>
+
+    <div
+      id="tabGate"
+      class="gate"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="gateTitle"
+      hidden
+    >
+      <div class="gate-card">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <h2 id="gateTitle" class="modal-title">beam is open in another tab</h2>
+        <p id="gateBody" class="modal-lead"></p>
+        <div class="modal-actions">
+          <button id="gateUse" class="btn btn-primary" type="button">
+            Use this tab instead
+          </button>
+        </div>
+      </div>
     </div>
-  </div>
-</template>
 
-<template id="rowT">
-  <li class="tr">
-    <span class="tr-icon" aria-hidden="true"></span>
-    <span class="tr-name"></span>
-    <span class="tr-meta"></span>
-    <span class="tr-tags"></span>
-    <span class="tr-act"></span>
-    <svg class="tr-graph" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true" hidden><polygon points=""></polygon><polyline points=""></polyline></svg>
-    <span class="tr-bar" aria-hidden="true"><i></i></span>
-  </li>
-</template>
+    <div id="toasts" class="toasts" aria-live="polite" popover="manual"></div>
+    <input type="file" id="filePicker" multiple hidden />
 
-<script src="qr.min.js"></script>
-<script type="module" src="js/app.js"></script>
-</body>
+    <template id="peerT">
+      <div class="peer" role="listitem">
+        <div class="peer-body">
+          <button class="peer-hit" type="button">
+            <span class="avatar">
+              <svg class="ring" viewBox="0 0 100 100" aria-hidden="true">
+                <circle class="ring-track" cx="50" cy="50" r="46"></circle>
+                <circle class="ring-fill" cx="50" cy="50" r="46"></circle>
+              </svg>
+              <span class="peer-emoji" aria-hidden="true"></span>
+              <span class="peer-pct" hidden></span>
+              <span class="peer-dir" aria-hidden="true"></span>
+            </span>
+            <span class="peer-name"></span>
+            <span class="peer-sub"></span>
+          </button>
+          <button class="note-btn" type="button">
+            <svg class="i" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 5h16v11H9l-5 4z" />
+              <path d="M8 9h8M8 12.5h5" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </template>
+
+    <template id="rowT">
+      <li class="tr">
+        <span class="tr-icon" aria-hidden="true"></span>
+        <span class="tr-name"></span>
+        <span class="tr-meta"></span>
+        <span class="tr-tags"></span>
+        <span class="tr-act"></span>
+        <svg
+          class="tr-graph"
+          viewBox="0 0 100 24"
+          preserveAspectRatio="none"
+          aria-hidden="true"
+          hidden
+        >
+          <polygon points=""></polygon>
+          <polyline points=""></polyline>
+        </svg>
+        <span class="tr-bar" aria-hidden="true"><i></i></span>
+      </li>
+    </template>
+
+    <script src="qr.min.js"></script>
+    <script type="module" src="js/app.js"></script>
+  </body>
 </html>

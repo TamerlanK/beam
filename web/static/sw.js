@@ -13,10 +13,18 @@ self.addEventListener("fetch", (e) => {
   }
   if (e.request.method !== "GET" || url.pathname.includes("/ws")) return;
   e.respondWith(
-    fetch(e.request).then((res) => {
-      if (res.ok) caches.open(SHELL).then((c) => c.put(e.request, res.clone())).catch(() => {});
-      return res;
-    }).catch(() => caches.match(e.request).then((hit) => hit || Response.error()))
+    fetch(e.request)
+      .then((res) => {
+        if (res.ok)
+          caches
+            .open(SHELL)
+            .then((c) => c.put(e.request, res.clone()))
+            .catch(() => {});
+        return res;
+      })
+      .catch(() =>
+        caches.match(e.request).then((hit) => hit || Response.error()),
+      ),
   );
 });
 
@@ -26,11 +34,24 @@ async function stash(req) {
   let i = 0;
   for (const f of form.getAll("files")) {
     if (!f || !f.size) continue;
-    await cache.put(`${self.registration.scope}shared/${i++}`, new Response(f, {
-      headers: { "content-type": f.type || "application/octet-stream", "x-name": encodeURIComponent(f.name || "file") },
-    }));
+    await cache.put(
+      `${self.registration.scope}shared/${i++}`,
+      new Response(f, {
+        headers: {
+          "content-type": f.type || "application/octet-stream",
+          "x-name": encodeURIComponent(f.name || "file"),
+        },
+      }),
+    );
   }
-  const text = [form.get("text"), form.get("url")].filter((v) => typeof v === "string" && v.trim()).join("\n").trim();
-  if (text) await cache.put(`${self.registration.scope}shared/text`, new Response(text));
+  const text = [form.get("text"), form.get("url")]
+    .filter((v) => typeof v === "string" && v.trim())
+    .join("\n")
+    .trim();
+  if (text)
+    await cache.put(
+      `${self.registration.scope}shared/text`,
+      new Response(text),
+    );
   return Response.redirect(`${self.registration.scope}?share`, 303);
 }
