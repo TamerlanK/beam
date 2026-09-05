@@ -399,7 +399,7 @@ func TestSecurityHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET /: %v", err)
 	}
-	res.Body.Close()
+	_ = res.Body.Close()
 	csp := res.Header.Get("Content-Security-Policy")
 	if csp == "" {
 		t.Fatal("missing Content-Security-Policy")
@@ -417,7 +417,7 @@ func TestPrivacyPageInjectsContact(t *testing.T) {
 		t.Fatalf("GET /privacy: %v", err)
 	}
 	body, _ := io.ReadAll(res.Body)
-	res.Body.Close()
+	_ = res.Body.Close()
 	if res.StatusCode != 200 || !strings.Contains(res.Header.Get("Content-Type"), "text/html") {
 		t.Fatalf("status %d, content-type %q", res.StatusCode, res.Header.Get("Content-Type"))
 	}
@@ -436,7 +436,7 @@ func TestMaxConnsPerIPClosesSocket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	start := time.Now()
 	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 	_, raw, err := conn.ReadMessage()
