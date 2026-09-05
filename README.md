@@ -85,12 +85,18 @@ Recorded as dated ADRs in [docs/decisions.md](docs/decisions.md). The big ones:
 
 ## Development
 
+Needs Go 1.22+, [golangci-lint](https://golangci-lint.run/welcome/install/), and Node (Prettier runs through `npx`, nothing to install). Live reload needs [gow](https://github.com/mitranim/gow): `go install github.com/mitranim/gow@latest`.
+
 ```sh
+make dev         # run with live reload on .go/.html/.css/.js changes
 make test        # unit + integration (incl. 50MB SHA-256-verified stream)
 make race        # same, with the race detector
-make lint        # go vet + golangci-lint
+make fmt         # gofmt + prettier — run before pushing
+make lint        # go vet, gofmt, golangci-lint, prettier — exactly what CI runs
 make loadtest    # 200 clients, 50 rooms, 25 concurrent 20MB transfers
 ```
+
+Formatting is enforced in CI, so `make fmt` is the only style rule. Line endings are LF everywhere via `.gitattributes`; Windows clones need no extra setup. Bulk reformat commits are listed in `.git-blame-ignore-revs`, which GitHub skips in blame automatically.
 
 ## Future work
 

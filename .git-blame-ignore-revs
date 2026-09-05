@@ -1,0 +1,5 @@
+# Mechanical reformats, skipped by git blame (GitHub honours this file automatically;
+# locally: git config blame.ignoreRevsFile .git-blame-ignore-revs)
+
+# style(web): format static assets with prettier
+6bc6a8a6961a809412219bc49a74a28877457ef6

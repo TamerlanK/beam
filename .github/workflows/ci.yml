@@ -20,6 +20,8 @@ jobs:
         run: |
           out=$(gofmt -l .)
           if [ -n "$out" ]; then echo "gofmt needed on:"; echo "$out"; exit 1; fi
+      - name: prettier
+        run: npx -y prettier@3.6.2 --check web/static
       - name: lint
         uses: golangci/golangci-lint-action@v6
         with:
