@@ -9,11 +9,10 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
-          go-version: "1.22"
-          check-latest: true
+          go-version-file: go.mod
       - name: vet
         run: go vet ./...
       - name: gofmt
@@ -21,13 +20,15 @@ jobs:
           out=$(gofmt -l .)
           if [ -n "$out" ]; then echo "gofmt needed on:"; echo "$out"; exit 1; fi
       - name: prettier
-        run: npx -y prettier@3.6.2 --check web/static
+        run: npx -y prettier@3.6.2 --check web
       - name: lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v9
         with:
-          version: latest
+          version: v2.13
       - name: race tests
         run: go test -race ./...
+      - name: js tests
+        run: node --test "web/test/**/*.test.mjs"
       - name: build
         run: CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" ./...
       - name: loadtest smoke
