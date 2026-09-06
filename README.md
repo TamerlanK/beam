@@ -36,11 +36,11 @@ go run ./cmd/beam            # serves on :8080
 ./beam -drop-budget 1073741824 -drop-ttl 10m   # total held ciphertext and pickup window
 ```
 
-Docker (~15MB image from `scratch`):
+Prebuilt binaries for Linux, macOS and Windows are on the [releases page](https://github.com/TamerlanK/beam/releases); every tag also publishes a multi-arch image (~15MB, from `scratch`):
 
 ```sh
-docker build -t beam .
-docker run -p 8080:8080 beam
+docker run -p 8080:8080 ghcr.io/tamerlank/beam
+docker build -t beam . && docker run -p 8080:8080 beam   # or build it yourself
 ```
 
 Production runs behind Caddy/nginx for HTTPS/WSS — beam deliberately does no in-process TLS termination.
@@ -85,11 +85,11 @@ Recorded as dated ADRs in [docs/decisions.md](docs/decisions.md). The big ones:
 
 ## Development
 
-Needs Go 1.22+, [golangci-lint](https://golangci-lint.run/welcome/install/), and Node (Prettier runs through `npx`, nothing to install). Live reload needs [gow](https://github.com/mitranim/gow): `go install github.com/mitranim/gow@latest`.
+Needs Go 1.27+, [golangci-lint](https://golangci-lint.run/welcome/install/) v2, and Node 22+ (Prettier runs through `npx` and the browser crypto tests run under `node --test`; nothing to install). Live reload needs [gow](https://github.com/mitranim/gow): `go install github.com/mitranim/gow@latest`.
 
 ```sh
 make dev         # run with live reload on .go/.html/.css/.js changes
-make test        # unit + integration (incl. 50MB SHA-256-verified stream)
+make test        # Go unit + integration (incl. 50MB SHA-256-verified stream), Node tests for crypto.js
 make race        # same, with the race detector
 make fmt         # gofmt + prettier — run before pushing
 make lint        # go vet, gofmt, golangci-lint, prettier — exactly what CI runs
@@ -102,3 +102,7 @@ Formatting is enforced in CI, so `make fmt` is the only style rule. Line endings
 
 - TURN support for symmetric-NAT pairs that currently fall back to the relay
 - Streaming receive on Firefox and Safari via a service-worker download stream
+
+## License
+
+MIT — see [LICENSE](LICENSE).
