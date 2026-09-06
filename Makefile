@@ -1,6 +1,7 @@
 .PHONY: run dev build test race fmt lint loadtest docker clean
 
 PRETTIER = npx -y prettier@3.6.2
+JSTEST = node --test "web/test/**/*.test.mjs"
 
 run:
 	go run ./cmd/beam
@@ -14,20 +15,22 @@ build:
 
 test:
 	go test ./...
+	$(JSTEST)
 
 race:
 	go test -race ./...
+	$(JSTEST)
 
 fmt:
 	gofmt -w .
-	$(PRETTIER) --write web/static
+	$(PRETTIER) --write web
 
 # same checks as CI
 lint:
 	go vet ./...
 	! gofmt -l . | grep .
 	golangci-lint run
-	$(PRETTIER) --check web/static
+	$(PRETTIER) --check web
 
 loadtest:
 	go run ./cmd/loadtest
