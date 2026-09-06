@@ -565,3 +565,29 @@ func TestDropSurvivesSenderAndReceiverLeaving(t *testing.T) {
 		t.Fatalf("drop-gone reason = %s", gone.Reason)
 	}
 }
+
+func TestStaticETag(t *testing.T) {
+	addr, stop := startServer(t)
+	defer stop()
+	for _, path := range []string{"/", "/js/app.js", "/vendor/pdf.worker.min.mjs"} {
+		res, err := http.Get("http://" + addr + path)
+		if err != nil {
+			t.Fatalf("GET %s: %v", path, err)
+		}
+		_ = res.Body.Close()
+		tag := res.Header.Get("ETag")
+		if tag == "" || res.Header.Get("Cache-Control") != "no-cache" {
+			t.Fatalf("GET %s: ETag=%q Cache-Control=%q", path, tag, res.Header.Get("Cache-Control"))
+		}
+		req, _ := http.NewRequest(http.MethodGet, "http://"+addr+path, nil)
+		req.Header.Set("If-None-Match", tag)
+		res, err = http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("conditional GET %s: %v", path, err)
+		}
+		_ = res.Body.Close()
+		if res.StatusCode != http.StatusNotModified {
+			t.Fatalf("conditional GET %s: got %d, want 304", path, res.StatusCode)
+		}
+	}
+}

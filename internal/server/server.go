@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"html/template"
 	"io/fs"
@@ -54,7 +56,11 @@ func New(cfg Config) (*Server, error) {
 	}
 
 	mux := http.NewServeMux()
-	mux.Handle("/", http.FileServerFS(staticFS))
+	static, err := etagged(staticFS, http.FileServerFS(staticFS))
+	if err != nil {
+		return nil, err
+	}
+	mux.Handle("/", static)
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		hub.ServeWS(s.hub, w, r, cfg.TrustProxy)
 	})
@@ -132,4 +138,35 @@ func secure(next http.Handler) http.Handler {
 		h.Set("Strict-Transport-Security", "max-age=31536000")
 		next.ServeHTTP(w, r)
 	})
+}
+
+// etagged gives every embedded asset an ETag derived from its bytes. With
+// Cache-Control: no-cache the browser revalidates on each load and gets a 304
+// unless the binary changed; ServeContent answers If-None-Match itself once the
+// header is set.
+func etagged(fsys fs.FS, next http.Handler) (http.Handler, error) {
+	tags := map[string]string{}
+	err := fs.WalkDir(fsys, ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		b, err := fs.ReadFile(fsys, p)
+		if err != nil {
+			return err
+		}
+		sum := sha256.Sum256(b)
+		tags["/"+p] = `"` + hex.EncodeToString(sum[:8]) + `"`
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	tags["/"] = tags["/index.html"]
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if tag, ok := tags[r.URL.Path]; ok {
+			w.Header().Set("ETag", tag)
+			w.Header().Set("Cache-Control", "no-cache")
+		}
+		next.ServeHTTP(w, r)
+	}), nil
 }
