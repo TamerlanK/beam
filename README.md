@@ -145,7 +145,7 @@ Recorded as dated ADRs in [docs/decisions.md](docs/decisions.md). The big ones:
 - **Relay first, WebRTC on top** — the relay works through every NAT/firewall and keeps the protocol exhaustively testable; a data channel is an optimization the browsers negotiate among themselves and the same envelopes flow over either pipe.
 - **Per-transfer ephemeral keys** — one ECDH exchange per file, piggybacked on the existing offer/answer; no identity keys, no key storage, forward secrecy for free. The verification code is the honest answer to a malicious relay.
 - **Receiver streams to disk where the browser allows it** — OPFS part file everywhere it exists, then File System Access on Chromium or a download elsewhere. See [docs/streaming.md](docs/streaming.md).
-- **Rooms keyed by public IP** — same-NAT devices find each other with zero configuration; devices behind carrier-grade NAT may see strangers, which is why every transfer needs an explicit accept.
+- **Rooms keyed by public IP, /64 for IPv6** — same-NAT devices find each other with zero configuration; devices behind carrier-grade NAT or a shared /64 may see strangers, which is why every transfer needs an explicit accept.
 - **Sender-generated transfer UUIDs** — lets the sender start streaming immediately on acceptance without an ID round trip; the server validates format and uniqueness.
 - **One tab owns the device** — Web Locks leader election keeps a browser to one presence; other tabs wait behind a gate and can take over.
 - **Drops hold ciphertext only** — the first and only time the server keeps user bytes: sealed to the addressee's long-lived device key (or to a random key that lives in the link's fragment), bounded by size, count, budget and TTL, and gone after one pickup.

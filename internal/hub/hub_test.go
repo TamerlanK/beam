@@ -90,6 +90,37 @@ func TestRoomKeyedByIP(t *testing.T) {
 	}
 }
 
+func TestRoomKeyGroupsIPv6ByPrefix(t *testing.T) {
+	cases := map[string]string{
+		"1.2.3.4":                 "ip:1.2.3.4",
+		"::ffff:1.2.3.4":          "ip:1.2.3.4",
+		"2001:db8:1:2:aaaa::1":    "ip:2001:db8:1:2::/64",
+		"2001:db8:1:2:bbbb:1:2:3": "ip:2001:db8:1:2::/64",
+		"2001:db8:1:3::1":         "ip:2001:db8:1:3::/64",
+		"10.0.0.7":                "ip:lan",
+		"fd12::1":                 "ip:lan",
+		"fe80::1":                 "ip:lan",
+		"::1":                     "ip:lan",
+		"not-an-ip":               "ip:not-an-ip",
+	}
+	for ip, want := range cases {
+		if got := roomKey(ip); got != want {
+			t.Errorf("roomKey(%q) = %q, want %q", ip, got, want)
+		}
+	}
+
+	h := testHub()
+	a := addTestClient(h, "a", "2001:db8:1:2:aaaa::1")
+	b := addTestClient(h, "b", "2001:db8:1:2:bbbb:1:2:3")
+	c := addTestClient(h, "c", "2001:db8:1:3::1")
+	if a.room != b.room {
+		t.Fatal("same-/64 IPv6 clients not grouped into one room")
+	}
+	if c.room == a.room {
+		t.Fatal("different-/64 IPv6 client landed in the same room")
+	}
+}
+
 func TestRoomCodeJoinAndTTL(t *testing.T) {
 	h := testHub()
 	a := addTestClient(h, "a", "1.1.1.1")

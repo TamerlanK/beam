@@ -4,6 +4,26 @@ ADR-style log. Each entry: context → decision → consequences.
 
 ---
 
+## 2026-09-08 — IPv6 devices group by /64
+
+**Context.** Rooms were keyed by the full client address. IPv4 devices
+behind one NAT share it; IPv6 devices on one LAN each have their own
+global address, and privacy extensions rotate it, so two laptops on the
+same Wi-Fi never saw each other on a dual-stack network.
+
+**Decision.** Public IPv6 addresses are keyed by their /64 prefix, the
+standard size of one LAN's delegation; IPv4 stays keyed by address;
+private, loopback and link-local addresses of either family share the one
+`lan` room as before.
+
+**Consequences.** Dual-stack LANs discover each other again. A /64 is the
+common case, not a guarantee: a carrier that hands one /64 to many
+customers groups them like carrier-grade NAT already did, which the
+explicit-accept rule covers. A phone on IPv6 and a laptop on IPv4 behind
+the same router still land in different rooms; the room code joins them.
+
+---
+
 ## 2026-09-04 — Durable resume: receive into OPFS, remember handles in IndexedDB
 
 **Context.** Resume only survived a dropped link for two minutes, because

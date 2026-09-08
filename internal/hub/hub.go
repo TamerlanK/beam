@@ -188,11 +188,7 @@ func (h *Hub) addClient(c *Client) {
 	}
 	h.conns[c.IP]++
 	h.clients[c.ID] = c
-	key := "ip:" + c.IP
-	// ponytail: self-hosted on a LAN every client has its own private IP; put them all in one room
-	if ip := net.ParseIP(c.IP); ip != nil && (ip.IsPrivate() || ip.IsLoopback()) {
-		key = "ip:lan"
-	}
+	key := roomKey(c.IP)
 	room := h.rooms[key]
 	if room == nil {
 		room = newRoom(key)
@@ -769,3 +765,21 @@ func sanitizeFilename(name string) string {
 	}
 	return strings.TrimSpace(name)
 }
+// roomKey groups devices that share a network. IPv4 devices behind one NAT
+// share a public address; IPv6 devices on one LAN each have their own
+// address inside a shared /64, so the prefix is the network.
+// ponytail: self-hosted on a LAN every client has its own private IP; put them all in one room
+func roomKey(ipStr string) string {
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return "ip:" + ipStr
+	}
+	if ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
+		return "ip:lan"
+	}
+	if ip.To4() == nil {
+		return "ip:" + ip.Mask(net.CIDRMask(64, 128)).String() + "/64"
+	}
+	return "ip:" + ip.String()
+}
+
