@@ -27,7 +27,7 @@ const MISSED_TTL = 60000;
 const CREATE_TTL = 10000;
 const SAVE_EVERY = 1000;
 const RECORD_TTL = 24 * 3600 * 1000;
-const MAX_INFLIGHT = 24; // ponytail: hub refuses more than 32 live transfers per sender
+const MAX_INFLIGHT = 24;
 
 let socket = null;
 const queues = new Map();
@@ -124,11 +124,6 @@ function newSend(peerId, file, extra) {
     ...extra,
   };
 }
-
-// Durable resume: what a reload must not lose lives in IndexedDB. The sender
-// keeps the file handle, key and offset; the receiver keeps the key and how
-// many bytes its part file holds. The protocol already resumes by offset, so
-// the server needs nothing.
 
 const recordKey = (t) => `${t.dir === "send" ? "tx" : "rx"}:${t.id}`;
 
@@ -246,8 +241,6 @@ function revive(r) {
   };
 }
 
-// Called whenever this tab becomes the device's live tab: bring back every
-// unfinished transfer as a paused row and reconcile with what is in memory.
 export async function restore() {
   let recs = [];
   try {
@@ -278,7 +271,6 @@ export async function restore() {
   reapParts(keep).catch(() => {});
 }
 
-// This tab is handing over to another: let go of part-file locks, keep the records.
 export function release() {
   for (const t of state.transfers.values()) {
     if (t.durable && t.dir === "recv" && t.sink && t.sink.detach) {
@@ -288,7 +280,6 @@ export function release() {
   }
 }
 
-// A restored sender has a handle but no File yet; reading it may need a click.
 async function prepare(t) {
   if (t.file || !t.handle || t.preparing) return;
   t.preparing = true;
@@ -378,7 +369,6 @@ async function offer(peerId, file) {
     }, OFFER_TTL);
 }
 
-// Nobody answered: keep the row around so the sender can leave it for later.
 function miss(t) {
   t.state = "missed";
   t.note = "no answer";
@@ -388,8 +378,6 @@ function miss(t) {
   }, MISSED_TTL);
   next(t.peerId);
 }
-
-// Drops: the server holds the sealed file until the addressee picks it up.
 
 export function canLeave(t) {
   if (
@@ -403,8 +391,6 @@ export function canLeave(t) {
   return !!(p && p.pub);
 }
 
-// Turn a pending offer into a drop for that device: the key is agreed with
-// the device's long-lived public key, so only it can ever open the file.
 export async function leaveFor(t) {
   if (!canLeave(t)) return;
   const peer = state.peers.get(t.peerId);
@@ -439,8 +425,6 @@ export async function leaveFor(t) {
   createDrop(t, { to: t.peerId, key: t.pub });
 }
 
-// A drop anyone can pick up once: the key is random and travels only in
-// the link's fragment, which browsers never send to the server.
 export async function leaveLink(file) {
   if (!fits(file.size)) return;
   const t = newSend("", file, {
@@ -619,7 +603,6 @@ function sameSender(a, b) {
   );
 }
 
-// Pending offers from the same peer as the first one: answered together.
 export function offerGroup() {
   const first = state.offers[0];
   return first ? state.offers.filter((o) => sameSender(o, first)) : [];
@@ -680,8 +663,6 @@ async function acceptOne(d, dir) {
       return;
     }
   } else if (d.key && e2e) {
-    // d.key is the sender's commitment; the key itself arrives as
-    // transfer-key after our answer, and must hash to this.
     try {
       const kp = await keypair();
       pub = kp.pub;
@@ -913,8 +894,6 @@ async function resumeReceive(t, link, hint = t.bytes) {
     }
     if (isDone(t) || t.link !== link) return;
   }
-  // The sender's hint may sit below what we hold (it saves its offset lazily);
-  // the server only accepts an answer at or below the hint, so rewind to it.
   const off = Math.min(t.bytes, Math.max(0, Math.floor(hint / CHUNK) * CHUNK));
   if (off < t.bytes) t.sink.seek(off);
   t.bytes = off;
@@ -1031,7 +1010,6 @@ export const handlers = {
     const t = mine(d, link);
     if (!t || t.dir !== "recv" || t.state !== "active" || !t.commit) return;
     if (t.key || typeof d.key !== "string") return;
-    // Queue behind the chain so no chunk is opened before the key exists.
     t.chain = t.chain.then(async () => {
       if (t.state !== "active" || t.key) return;
       if ((await commit(d.key)) !== t.commit) throw new Error("commitment");
@@ -1162,7 +1140,6 @@ export const handlers = {
         );
       return;
     }
-    // picked-up is our own pickup completing; the sink may still be flushing the tail.
     if (!isDone(t) && d.reason !== "picked-up")
       end(
         t,

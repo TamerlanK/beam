@@ -139,9 +139,6 @@ type Peer struct {
 	Emoji  string `json:"emoji"`
 	Device string `json:"device"`
 
-	// Pub is the device's long-lived ECDH public key (raw P-256, base64),
-	// used to seal drops addressed to it. Empty when the browser has no
-	// Web Crypto.
 	Pub string `json:"pub,omitempty"`
 }
 
@@ -149,7 +146,6 @@ type RoomState struct {
 	Self  Peer   `json:"self"`
 	Peers []Peer `json:"peers"`
 
-	// Drops is nil when the server holds no drops.
 	Drops *DropLimits `json:"drops,omitempty"`
 }
 
@@ -158,8 +154,6 @@ type DropLimits struct {
 	TTLSec   int   `json:"ttl"`
 }
 
-// DropCreate asks the server to hold a sealed file until its addressee
-// (To, a device id) or anyone holding the link (To empty) picks it up.
 type DropCreate struct {
 	ID      string `json:"id"`
 	To      string `json:"to,omitempty"`
@@ -250,9 +244,6 @@ type RTC struct {
 	Signal json.RawMessage `json:"signal"`
 }
 
-// TransferKey reveals the sender's ephemeral public key after the answer;
-// the offer carried only a SHA-256 commitment to it, so a relay cannot pick
-// its own keys against a verification code it has already seen.
 type TransferKey struct {
 	ID  string `json:"id"`
 	Key string `json:"key"`

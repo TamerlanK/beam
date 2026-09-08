@@ -1609,16 +1609,13 @@ body.is-dragging .note-btn {
 
 .emoji-grid {
   display: grid;
-  grid-template-columns: repeat(
-    auto-fill,
-    minmax(40px, 1fr)
-  ); /* fits whatever width is left after the scrollbar */
+  grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
   gap: 6px;
   margin-top: 16px;
   max-height: 232px;
   overflow: hidden auto;
   scrollbar-gutter: stable;
-  padding: 4px; /* the checked glow and hover scale stay inside the clip */
+  padding: 4px;
   scrollbar-width: thin;
   scrollbar-color: var(--edge-2) transparent;
 }

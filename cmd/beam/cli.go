@@ -99,7 +99,6 @@ func runCLI(cmd string, args []string) int {
 	}
 }
 
-// session is a connected client plus the goroutine driving it.
 type session struct {
 	c      *client.Client
 	o      *opts
@@ -109,7 +108,7 @@ type session struct {
 	err    error
 	ready  bool
 	down   bool
-	target protocol.Peer // send: who the files go to
+	target protocol.Peer
 }
 
 func (o *opts) connect() (*session, error) {
@@ -130,7 +129,6 @@ func (o *opts) connect() (*session, error) {
 	return s, nil
 }
 
-// close stops the client and returns why it stopped; safe to call twice.
 func (s *session) close() error {
 	s.cancel()
 	s.once.Do(func() { s.err = <-s.done })
@@ -140,7 +138,6 @@ func (s *session) close() error {
 	return s.err
 }
 
-// note keeps the user informed about the connection and the room.
 func (s *session) note(ev client.Event) {
 	switch ev.Type {
 	case client.Connected:
@@ -173,7 +170,6 @@ func (s *session) note(ev client.Event) {
 	}
 }
 
-// serverError turns an error message from the server into an error.
 func serverError(ev client.Event) error {
 	if ev.Type != protocol.TypeError {
 		return nil
@@ -298,7 +294,7 @@ func (s *session) sendNote(ctx context.Context, peer protocol.Peer, text string)
 	if err := s.c.Send(protocol.TypeSnippet, protocol.Snippet{To: peer.ID, Text: text}); err != nil {
 		return err
 	}
-	// ponytail: notes have no ack; a refusal arrives right behind, so give it a moment
+
 	grace := time.After(500 * time.Millisecond)
 	for {
 		select {
@@ -318,7 +314,6 @@ func (s *session) sendNote(ctx context.Context, peer protocol.Peer, text string)
 	}
 }
 
-// find waits for the device meant by "to" to be in the room.
 func (s *session) find(ctx context.Context, to string) (protocol.Peer, error) {
 	var timeout <-chan time.Time
 	if s.o.wait > 0 {
@@ -366,9 +361,6 @@ func (s *session) find(ctx context.Context, to string) (protocol.Peer, error) {
 	}
 }
 
-// pick finds the peer meant by "to": an id or a name, or a prefix of
-// either, case-insensitively. Empty means the only other device. nil
-// means nobody matches yet.
 func pick(peers []protocol.Peer, to string) (*protocol.Peer, error) {
 	if to == "" {
 		switch len(peers) {
@@ -497,7 +489,7 @@ func recv(ctx context.Context, o *opts, dir string, yes, once bool) error {
 		select {
 		case ev, ok := <-s.c.Events:
 			if !ok {
-				r.Cancel() // the sends fail, the part files go
+				r.Cancel()
 				return s.close()
 			}
 			if err := serverError(ev); err != nil {
@@ -560,9 +552,6 @@ func question(group []*client.Offer) string {
 	return b.String()
 }
 
-// Terminal output: lines go above a live status line that is redrawn in
-// place, and a prompt owns the line while it waits for an answer.
-
 var stderrTTY = isTerminal(os.Stderr)
 
 func isTerminal(f *os.File) bool {
@@ -576,7 +565,6 @@ var scr struct {
 	prompt string
 }
 
-// say prints a line on stderr, keeping the live status line below it.
 func say(format string, a ...any) {
 	scr.mu.Lock()
 	defer scr.mu.Unlock()
@@ -591,7 +579,6 @@ func say(format string, a ...any) {
 	}
 }
 
-// status replaces the live line; a no-op without a terminal.
 func status(line string) {
 	if !stderrTTY {
 		return
@@ -615,8 +602,6 @@ func draw() {
 	}
 }
 
-// ask prints a question and reads a yes or no; the last line of q is the
-// one that waits for input.
 func ask(in *bufio.Reader, q string) bool {
 	scr.mu.Lock()
 	wipe()
@@ -632,7 +617,6 @@ func ask(in *bufio.Reader, q string) bool {
 	return a == "y" || a == "yes"
 }
 
-// meter renders throughput and ETA over a sliding window, like the browser.
 type meter struct {
 	samples []sample
 	last    time.Time
@@ -654,7 +638,7 @@ func (m *meter) show(done, total int64, label string) {
 		return
 	}
 	if n := len(m.samples); n > 0 && m.samples[n-1].n > done {
-		m.samples = nil // a resume rewound
+		m.samples = nil
 	}
 	m.samples = append(m.samples, sample{now, done})
 	if len(m.samples) > 30 {

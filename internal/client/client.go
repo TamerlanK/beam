@@ -1,7 +1,3 @@
-// Package client speaks the beam wire protocol from Go. It is what the
-// terminal commands (beam ls, send, recv) use to be a device in a room:
-// one reconnecting websocket, the room's peers, and the sender and receiver
-// state machines that stream files through it.
 package client
 
 import (
@@ -31,10 +27,6 @@ const (
 	maxBackoff    = 15 * time.Second
 )
 
-// Identity is what peers see. Name and avatar are persisted so the device
-// looks the same across runs, the way a browser keeps them in
-// localStorage; the id is fresh per run, so every process is its own
-// device and a send from one shell cannot replace a recv in another.
 type Identity struct {
 	ID    string `json:"-"`
 	Name  string `json:"name"`
@@ -49,9 +41,6 @@ func identityPath() (string, error) {
 	return filepath.Join(dir, "beam", "identity.json"), nil
 }
 
-// LoadIdentity returns the saved name and avatar, choosing them on first
-// use. The identity is always usable; a non-nil error only means it could
-// not be saved and the device will look new next time.
 func LoadIdentity() (Identity, error) {
 	var id Identity
 	path, err := identityPath()
@@ -84,43 +73,37 @@ func LoadIdentity() (Identity, error) {
 }
 
 type Config struct {
-	Server    string // http(s):// or ws(s):// URL of the beam server; a bare host:port is taken as http
+	Server    string
 	Identity  Identity
-	Join      string // room code to enter after every connect, optional
+	Join      string
 	UserAgent string
 }
 
-// Event is one thing that happened on the connection: a control message
-// (Type is the protocol type, Data its payload), a binary frame, or a
-// change of connection state.
 type Event struct {
 	Type  string
 	Data  json.RawMessage
 	Frame []byte
-	Err   error // Disconnected: why
+	Err   error
 }
 
 const (
-	Connected    = "connected"    // Data is a protocol.RoomState
-	Disconnected = "disconnected" // the client reconnects by itself
+	Connected    = "connected"
+	Disconnected = "disconnected"
 	Frame        = "frame"
 )
 
-// A FatalError ends Run: the server told us not to come back.
 type FatalError struct{ Code, Message string }
 
 func (e *FatalError) Error() string { return e.Message }
 
 var ErrNotConnected = errors.New("not connected")
 
-// Client is one device on one server. Run drives the connection; Events
-// delivers everything that happens on it, in order, to a single consumer.
 type Client struct {
 	cfg    Config
 	wsURL  string
 	Events chan Event
 
-	mu   sync.Mutex // conn and writes
+	mu   sync.Mutex
 	conn *websocket.Conn
 
 	pmu   sync.RWMutex
@@ -155,9 +138,6 @@ func New(cfg Config) (*Client, error) {
 	return &Client{cfg: cfg, wsURL: u.String(), Events: make(chan Event, 256), peers: map[string]protocol.Peer{}}, nil
 }
 
-// Run connects, reconnects with backoff whenever the link drops, and
-// delivers everything to Events until ctx ends or the server refuses us
-// for good. The first connection must succeed. Events is closed on return.
 func (c *Client) Run(ctx context.Context) error {
 	defer close(c.Events)
 	delay := time.Second
@@ -175,7 +155,7 @@ func (c *Client) Run(ctx context.Context) error {
 		if !ever || errors.As(err, &fatal) {
 			return err
 		}
-		// One Disconnected per outage, not one per failed dial.
+
 		if ok && !c.emit(ctx, Event{Type: Disconnected, Err: err}) {
 			return ctx.Err()
 		}
@@ -188,8 +168,6 @@ func (c *Client) Run(ctx context.Context) error {
 	}
 }
 
-// session is one connection from dial to close. ok reports whether the
-// handshake succeeded, so the caller can tell a dead server from a blip.
 func (c *Client) session(ctx context.Context) (ok bool, err error) {
 	dialer := websocket.Dialer{HandshakeTimeout: handshakeWait}
 	h := http.Header{}
@@ -240,7 +218,7 @@ func (c *Client) session(ctx context.Context) (ok bool, err error) {
 			continue
 		}
 		if fatal := c.track(env); fatal != nil {
-			return true, fatal // reaches the consumer as Run's result, not as an event
+			return true, fatal
 		}
 		if !c.emit(ctx, Event{Type: env.Type, Data: env.Data}) {
 			return true, ctx.Err()
@@ -248,9 +226,6 @@ func (c *Client) session(ctx context.Context) (ok bool, err error) {
 	}
 }
 
-// handshake reads the first room-state and, with a join code, moves into
-// that room. Joining the room we are already in is silent on the wire, so
-// a profile echo follows the join: its peer-updated proves we are in.
 func (c *Client) handshake(conn *websocket.Conn) (protocol.RoomState, json.RawMessage, error) {
 	rs, raw, err := readRoom(conn, "")
 	if err != nil || c.cfg.Join == "" {
@@ -270,13 +245,11 @@ func (c *Client) handshake(conn *websocket.Conn) (protocol.RoomState, json.RawMe
 		return rs, raw, err
 	}
 	if jraw == nil {
-		return rs, raw, nil // already there
+		return rs, raw, nil
 	}
 	return joined, jraw, nil
 }
 
-// readRoom reads until a room-state. With selfID set, a peer-updated for
-// that id ends the wait too, returning a nil payload.
 func readRoom(conn *websocket.Conn, selfID string) (protocol.RoomState, json.RawMessage, error) {
 	_ = conn.SetReadDeadline(time.Now().Add(handshakeWait))
 	for {
@@ -311,8 +284,6 @@ func readRoom(conn *websocket.Conn, selfID string) (protocol.RoomState, json.Raw
 	}
 }
 
-// track keeps self and peers current and spots the errors that mean the
-// server closed the door.
 func (c *Client) track(env protocol.Envelope) error {
 	switch env.Type {
 	case protocol.TypeRoomState:
@@ -386,7 +357,6 @@ func (c *Client) Peer(id string) (protocol.Peer, bool) {
 	return p, ok
 }
 
-// Peers lists the room, sorted by name.
 func (c *Client) Peers() []protocol.Peer {
 	c.pmu.RLock()
 	out := make([]protocol.Peer, 0, len(c.peers))
@@ -403,7 +373,6 @@ func (c *Client) Peers() []protocol.Peer {
 	return out
 }
 
-// Send writes one control message.
 func (c *Client) Send(msgType string, data any) error {
 	b, err := protocol.Encode(msgType, data)
 	if err != nil {
@@ -412,7 +381,6 @@ func (c *Client) Send(msgType string, data any) error {
 	return c.write(websocket.TextMessage, b)
 }
 
-// SendFrame writes one binary frame; the buffer may be reused on return.
 func (c *Client) SendFrame(frame []byte) error {
 	return c.write(websocket.BinaryMessage, frame)
 }

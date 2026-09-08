@@ -1,5 +1,3 @@
-// Run with `make test` or `node --test "web/test/**/*.test.mjs"` (Node 22+). No dependencies: Node's global
-// WebCrypto is the same API the browser modules call.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -53,8 +51,6 @@ test("drop links: the URL-fragment secret round-trips to a working key", async (
 });
 
 test("interop: a chunk sealed by the Go client opens here with the same verification code", async () => {
-  // Pinned in internal/client/vector_test.go: the sender's key is the scalar
-  // 1..32, ours is 33..64; a Go sender sealed chunk 3 of that transfer.
   const pubA =
     "BFFcPW6545a5BNP+yn9U/c0MwemXvzddylFa0KbDtANfRTa+OlDzGPv5pUdZAqIhUCvvDVfgjFOyzApW8X2fk1Q=";
   const pubB =
@@ -94,7 +90,7 @@ test("interop: a chunk sealed by the Go client opens here with the same verifica
 });
 
 test("frame prefix: uuid string <-> 16 bytes round-trips", async () => {
-  globalThis.matchMedia = () => ({}); // util.js touches it at import time
+  globalThis.matchMedia = () => ({});
   const { uuid, uuidBytes, bytesToUUID } = await import("../static/js/util.js");
   const id = uuid();
   assert.match(

@@ -9,14 +9,8 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// ponytail: a flat per-IP cap; upgrade to a token bucket if a single address
-// legitimately needs more than 16 drops in flight.
 const maxDropsPerIP = 16
 
-// Drop is a sealed file the hub holds in memory until its addressee (ToID)
-// or anyone holding the link (ToID empty) picks it up, or the TTL reaps it.
-// The hub only ever sees ciphertext: the key travels either sealed to the
-// addressee's public key or inside the link's URL fragment.
 type Drop struct {
 	ID      uuid.UUID
 	FromID  string
@@ -117,8 +111,6 @@ func (h *Hub) handleDropCreate(c *Client, m protocol.DropCreate) {
 	h.logDrop(d, "drop created")
 }
 
-// storeFrame is the upload half: the creator streams sealed chunks that the
-// hub copies out of the pooled buffer and keeps.
 func (h *Hub) storeFrame(c *Client, d *Drop, m inbound) {
 	defer framePool.Put(m.pool)
 	if d.FromID != c.ID || d.Held() {
@@ -165,7 +157,6 @@ func (h *Hub) waiting(d *Drop) protocol.DropWaiting {
 	}
 }
 
-// announce tells the addressee a held drop is waiting, if they are connected.
 func (h *Hub) announce(d *Drop) {
 	if d.ToID == "" || d.pickup != nil || !d.Held() {
 		return
@@ -251,8 +242,6 @@ func (h *Hub) handleDropAccept(c *Client, m protocol.DropAccept) {
 	}
 }
 
-// pushDrop is the download half: the hub plays sender, one stored frame per
-// credit, so the receiver's write completions pace it exactly like a relay.
 func (h *Hub) pushDrop(t *Transfer) bool {
 	d := t.drop
 	if h.transfers[t.ID] != t || t.cursor >= len(d.frames) {

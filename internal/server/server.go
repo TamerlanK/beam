@@ -140,10 +140,6 @@ func secure(next http.Handler) http.Handler {
 	})
 }
 
-// etagged gives every embedded asset an ETag derived from its bytes. With
-// Cache-Control: no-cache the browser revalidates on each load and gets a 304
-// unless the binary changed; ServeContent answers If-None-Match itself once the
-// header is set.
 func etagged(fsys fs.FS, next http.Handler) (http.Handler, error) {
 	tags := map[string]string{}
 	err := fs.WalkDir(fsys, ".", func(p string, d fs.DirEntry, err error) error {

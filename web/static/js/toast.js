@@ -37,7 +37,6 @@ export function initToasts() {
     );
   });
 
-  // Notes stay until dismissed: a one-time code shouldn't vanish while you're typing it.
   on("snippet", (d) => {
     const url = asURL(d.text);
     const t = el(

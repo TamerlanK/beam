@@ -1,10 +1,3 @@
-// Where received bytes go. Preference order:
-//   1. a part file in the origin-private file system (durable: a closed tab
-//      resumes; no RAM ceiling on any browser), delivered at the end into the
-//      file the user picked, or as a download
-//   2. straight into the picked file (File System Access, Chromium) when OPFS
-//      is unavailable or out of quota
-//   3. memory, assembled into a Blob
 const PARTS = "parts";
 const SLACK = 64 << 20;
 const KEEP_PART_MS = 10 * 60 * 1000;
@@ -30,11 +23,9 @@ async function roomFor(size) {
   }
 }
 
-// dir: undefined = ask per file, null = keep in memory, handle = write into that folder
 export async function openSink(id, name, size, mime, dir) {
   let target = null;
   if (dir !== null && typeof showSaveFilePicker === "function") {
-    // ponytail: same-named files in a batch overwrite each other in the folder
     try {
       target = dir
         ? await dir.getFileHandle(name, { create: true })
@@ -56,7 +47,6 @@ export async function openSink(id, name, size, mime, dir) {
   return memorySink(name, mime);
 }
 
-// Reattach to a part file after a reload; throws when that is impossible.
 export const reopenSink = (id, name, mime, target) =>
   partSink(id, name, mime, target);
 
@@ -107,7 +97,6 @@ async function partSink(id, name, mime, target) {
         .catch(() => {})
         .finally(stop);
     },
-    // Release the file lock but keep the part, for another tab or a later session.
     detach() {
       call({ op: "close" })
         .catch(() => {})
@@ -139,7 +128,6 @@ async function deliver(id, name, mime, target) {
     if ((await target.queryPermission({ mode: "readwrite" })) === "granted")
       return await copy();
   } catch {}
-  // The permission lapsed (a reload): finishing into the chosen file needs a click.
   return {
     saved: false,
     async save() {
@@ -154,7 +142,6 @@ async function deliver(id, name, mime, target) {
   };
 }
 
-// Delete part files no live record refers to, once they are clearly abandoned.
 export async function reapParts(keep) {
   if (!opfs) return;
   const dir = await partsDir();
@@ -201,7 +188,6 @@ function memorySink(name, mime) {
   return {
     durable: false,
     target: null,
-    // Every write is one 64KB chunk, so a chunk-aligned offset is a part index.
     seek(off) {
       parts.length = Math.min(parts.length, off / 65536);
     },

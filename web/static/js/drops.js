@@ -1,11 +1,6 @@
-// Drops: files the server holds (as ciphertext) until the addressee, or
-// anyone holding the link, picks them up. This module owns the key material
-// and link plumbing; the transfer engine in transfers.js moves the bytes.
 import { state } from "./state.js";
 import { available as e2e, deviceKeypair } from "./crypto.js";
 
-// This browser's long-lived ECDH keypair. Its public half rides along with
-// our presence so peers can seal drops that only this device can open.
 export let device = null;
 const secrets = new Map();
 

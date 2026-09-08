@@ -50,7 +50,6 @@ func dial(t *testing.T, addr, name string) *Client {
 	return c
 }
 
-// dropConn kills the current socket; Run reconnects with the same identity.
 func (c *Client) dropConn() {
 	c.mu.Lock()
 	if c.conn != nil {
@@ -76,7 +75,6 @@ type got struct {
 	err             error
 }
 
-// runReceiver accepts everything and reports each finished transfer.
 func runReceiver(rc *Client, dir string, results chan<- got, hook func(*Receiver)) {
 	r := NewReceiver(rc, dir)
 	sas := map[string]string{}
@@ -97,8 +95,6 @@ func runReceiver(rc *Client, dir string, results chan<- got, hook func(*Receiver
 	}()
 }
 
-// runSender drives a Sender to the end and returns the verification codes
-// it showed, per file name, and how many times a transfer started.
 func runSender(t *testing.T, sc *Client, to string, files []File) (map[string][]string, int) {
 	t.Helper()
 	s := NewSender(sc, to, files)
@@ -143,7 +139,7 @@ func TestSendReceive(t *testing.T) {
 	results := make(chan got, 8)
 	runReceiver(rc, dst, results, nil)
 
-	names := []string{"a.txt", "b.bin", "c.bin", "a.txt"} // a.txt twice: the second must not overwrite
+	names := []string{"a.txt", "b.bin", "c.bin", "a.txt"}
 	var files []File
 	for _, n := range names {
 		f, err := Stat(filepath.Join(src, n))

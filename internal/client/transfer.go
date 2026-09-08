@@ -19,7 +19,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// ponytail: the hub refuses more than 32 live transfers per sender; the browser keeps 24 in flight
 const maxInflight = 24
 
 type state int
@@ -28,7 +27,7 @@ const (
 	stQueued state = iota
 	stOffered
 	stActive
-	stPaused // the link or the peer went away; resumes by offset when it is back
+	stPaused
 	stDone
 	stFailed
 )
@@ -51,7 +50,6 @@ func reasonText(r string) string {
 	return r
 }
 
-// File is something to send.
 type File struct {
 	Path string
 	Name string
@@ -59,7 +57,6 @@ type File struct {
 	Mime string
 }
 
-// Stat describes a local file for sending, refusing what the server would.
 func Stat(path string) (File, error) {
 	fi, err := os.Stat(path)
 	if err != nil {
@@ -80,8 +77,6 @@ func Stat(path string) (File, error) {
 	return File{Path: path, Name: name, Size: fi.Size(), Mime: m}, nil
 }
 
-// Sender
-
 type sendXfer struct {
 	id      uuid.UUID
 	f       File
@@ -93,14 +88,10 @@ type sendXfer struct {
 	state   state
 	offset  int64
 	credits int
-	since   time.Time // when it started waiting for the peer
+	since   time.Time
 	err     error
 }
 
-// Sender streams files to one peer, one transfer per file, up to
-// maxInflight at a time. Drive it from one goroutine: Start once, then
-// Handle every event until Finished. A peer that drops mid-transfer is
-// re-offered from where it stopped when it comes back.
 type Sender struct {
 	c     *Client
 	to    string
@@ -108,10 +99,6 @@ type Sender struct {
 	byID  map[uuid.UUID]*sendXfer
 	frame []byte
 
-	// OnStart runs when the receiver accepts; sas is "" when it has no
-	// crypto and the file goes in the clear. OnPause runs when the peer or
-	// the link went away. OnDone runs once per file with nil or why it
-	// was not sent.
 	OnStart    func(f File, sas string)
 	OnPause    func(f File)
 	OnProgress func()
@@ -128,7 +115,6 @@ func NewSender(c *Client, to string, files []File) *Sender {
 	return s
 }
 
-// Start offers the first batch. The peer must be in the room.
 func (s *Sender) Start() { s.fill() }
 
 func (s *Sender) fill() {
@@ -178,7 +164,7 @@ func (s *Sender) offer(x *sendXfer) {
 		ID: x.id.String(), To: s.to, Name: x.f.Name, Size: x.f.Size, Mime: x.f.Mime, Key: x.commit, Offset: hint,
 	})
 	if err != nil {
-		x.state = stPaused // the reconnect re-offers
+		x.state = stPaused
 	}
 }
 
@@ -257,9 +243,7 @@ func (s *Sender) answered(x *sendXfer, a protocol.TransferAnswer) {
 		s.finish(x, errors.New("declined"))
 		return
 	}
-	// Encrypted only when both sides supplied a key, which is the server's
-	// rule too; the latest receiver key wins so a receiver that came back
-	// with a new one still works (chunks are sealed independently).
+
 	x.key, x.sas = nil, ""
 	if a.Key != "" {
 		key, sas, err := shared(x.kp, a.Key)
@@ -269,7 +253,7 @@ func (s *Sender) answered(x *sendXfer, a protocol.TransferAnswer) {
 		}
 		x.key, x.sas = key, sas
 		if err := s.c.Send(protocol.TypeTransferKey, protocol.TransferKey{ID: x.id.String(), Key: x.kp.pub}); err != nil {
-			return // the link is going; Disconnected follows
+			return
 		}
 	}
 	if a.Offset < 0 || a.Offset > x.offset || a.Offset%protocol.ChunkSize != 0 {
@@ -283,7 +267,6 @@ func (s *Sender) answered(x *sendXfer, a protocol.TransferAnswer) {
 	s.pump(x)
 }
 
-// pump sends while credits last; the rest waits for flow-credit.
 func (s *Sender) pump(x *sendXfer) {
 	for x.state == stActive && x.credits > 0 && x.offset < x.f.Size {
 		n := min(int64(protocol.ChunkSize), x.f.Size-x.offset)
@@ -298,7 +281,7 @@ func (s *Sender) pump(x *sendXfer) {
 		}
 		copy(s.frame, x.id[:])
 		if err := s.c.SendFrame(s.frame[:protocol.FrameOverhead+len(payload)]); err != nil {
-			return // Disconnected follows and pauses it
+			return
 		}
 		x.credits--
 		x.offset += n
@@ -339,8 +322,6 @@ func (s *Sender) finish(x *sendXfer, err error) {
 	s.fill()
 }
 
-// Reap gives up on transfers that waited longer than maxWait for the peer
-// to come back. Zero means wait forever.
 func (s *Sender) Reap(maxWait time.Duration) {
 	if maxWait <= 0 {
 		return
@@ -352,7 +333,6 @@ func (s *Sender) Reap(maxWait time.Duration) {
 	}
 }
 
-// Cancel withdraws everything still open, e.g. on Ctrl-C.
 func (s *Sender) Cancel() {
 	for _, x := range s.xfers {
 		if !terminal(x.state) {
@@ -392,9 +372,6 @@ func (s *Sender) Progress() (sent, total int64) {
 	return sent, total
 }
 
-// Receiver
-
-// Offer is a file a peer wants to send us, waiting for Answer.
 type Offer struct {
 	ID        uuid.UUID
 	Name      string
@@ -420,19 +397,12 @@ type recvXfer struct {
 	since  time.Time
 }
 
-// Receiver takes files into a directory. Drive it from one goroutine:
-// Handle every event, Answer what Pending offers. A sender that drops
-// mid-transfer resumes from what we hold when it re-offers.
 type Receiver struct {
 	c       *Client
 	dir     string
 	pending []*Offer
 	xfers   map[uuid.UUID]*recvXfer
 
-	// OnStart runs when the transfer is set up; sas is "" for a sender
-	// without crypto. OnPause runs when the sender or the link went away.
-	// OnDone runs with the saved path, or why it failed. OnExpired runs
-	// when an unanswered offer went away.
 	OnStart    func(name string, from protocol.Peer, sas string)
 	OnPause    func(name string, from protocol.Peer)
 	OnProgress func()
@@ -445,10 +415,8 @@ func NewReceiver(c *Client, dir string) *Receiver {
 	return &Receiver{c: c, dir: dir, xfers: map[uuid.UUID]*recvXfer{}}
 }
 
-// Pending lists offers that still need an Answer.
 func (r *Receiver) Pending() []*Offer { return slices.Clone(r.pending) }
 
-// Active counts transfers that are running or waiting for their sender.
 func (r *Receiver) Active() int {
 	n := 0
 	for _, x := range r.xfers {
@@ -459,7 +427,6 @@ func (r *Receiver) Active() int {
 	return n
 }
 
-// Progress sums the transfers that are still open.
 func (r *Receiver) Progress() (got, total int64) {
 	for _, x := range r.xfers {
 		if x.state == stActive || x.state == stPaused {
@@ -589,7 +556,7 @@ func (r *Receiver) offered(data json.RawMessage) {
 		case (x.state == stActive || x.state == stPaused) && x.from.ID == m.From.ID && x.name == name && x.size == m.Size:
 			r.resume(x, m)
 		case x.state == stDone:
-			// We already have it; a fast no beats their 30-second timeout.
+
 			_ = r.c.Send(protocol.TypeTransferAnswer, protocol.TransferAnswer{ID: m.ID})
 		}
 		return
@@ -602,8 +569,6 @@ func (r *Receiver) offered(data json.RawMessage) {
 	r.pending = append(r.pending, &Offer{ID: id, Name: name, Size: m.Size, From: *m.From, Encrypted: m.Key != "", commit: m.Key})
 }
 
-// resume answers a re-offer of a transfer we hold part of. The server only
-// accepts an offset at or below the sender's hint, so rewind to it.
 func (r *Receiver) resume(x *recvXfer, m protocol.TransferOffer) {
 	off := min(x.bytes/protocol.ChunkSize*protocol.ChunkSize, m.Offset)
 	if err := x.part.Truncate(off); err != nil {
@@ -639,8 +604,6 @@ func (r *Receiver) resume(x *recvXfer, m protocol.TransferOffer) {
 
 var ErrExpired = errors.New("the offer is no longer open")
 
-// Answer accepts or declines a pending offer. Accepting opens a part file
-// in the directory; the file gets its real name once every byte is in.
 func (r *Receiver) Answer(o *Offer, accept bool) error {
 	i := slices.Index(r.pending, o)
 	if i < 0 {
@@ -669,7 +632,7 @@ func (r *Receiver) Answer(o *Offer, accept bool) error {
 	}
 	r.xfers[o.ID] = x
 	if err := r.c.Send(protocol.TypeTransferAnswer, protocol.TransferAnswer{ID: o.ID.String(), Accept: true, Key: pub}); err != nil {
-		r.pause(x) // the sender re-offers when we are back
+		r.pause(x)
 		return nil
 	}
 	if x.commit == "" && r.OnStart != nil {
@@ -742,7 +705,6 @@ func (r *Receiver) finish(x *recvXfer) {
 	}
 }
 
-// fail tells the sender and drops the part; abandon only drops the part.
 func (r *Receiver) fail(x *recvXfer, reason string) {
 	if x.state == stActive {
 		_ = r.c.Send(protocol.TypeTransferCancel, protocol.TransferCancel{ID: x.id.String(), Reason: reason})
@@ -762,7 +724,6 @@ func (r *Receiver) abandon(x *recvXfer, err error) {
 	}
 }
 
-// Reap gives up on transfers whose sender has been gone longer than maxWait.
 func (r *Receiver) Reap(maxWait time.Duration) {
 	if maxWait <= 0 {
 		return
@@ -774,8 +735,6 @@ func (r *Receiver) Reap(maxWait time.Duration) {
 	}
 }
 
-// Cancel declines what is pending, withdraws what is open and removes the
-// part files, e.g. on Ctrl-C.
 func (r *Receiver) Cancel() {
 	for _, o := range r.pending {
 		_ = r.c.Send(protocol.TypeTransferAnswer, protocol.TransferAnswer{ID: o.ID.String()})
@@ -790,7 +749,6 @@ func (r *Receiver) Cancel() {
 
 var reservedName = regexp.MustCompile(`(?i)^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$`)
 
-// safeName keeps a received name inside the directory and valid on this OS.
 func safeName(name string) string {
 	name = name[strings.LastIndexAny(name, `/\`)+1:]
 	name = strings.Map(func(r rune) rune {
@@ -812,7 +770,6 @@ func safeName(name string) string {
 	return name
 }
 
-// uniquePath is dir/name, or dir/name (n) when that exists already.
 func uniquePath(dir, name string) (string, error) {
 	ext := filepath.Ext(name)
 	stem := strings.TrimSuffix(name, ext)

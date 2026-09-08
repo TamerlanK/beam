@@ -14,14 +14,9 @@ import (
 	"github.com/google/uuid"
 )
 
-// Mirrors web/static/js/crypto.js so a terminal and a browser agree on
-// every byte: ephemeral P-256 ECDH, the raw shared secret used directly as
-// the AES-256-GCM key (what WebCrypto's deriveKey does), IV = 96-bit
-// big-endian chunk index, AAD = the 16-byte transfer id.
-
 type keypair struct {
 	priv *ecdh.PrivateKey
-	pub  string // raw uncompressed point, base64
+	pub  string
 }
 
 func newKeypair() (keypair, error) {
@@ -32,9 +27,6 @@ func newKeypair() (keypair, error) {
 	return keypair{priv: priv, pub: base64.StdEncoding.EncodeToString(priv.PublicKey().Bytes())}, nil
 }
 
-// commitment is what an offer carries instead of the key: base64 of the
-// SHA-256 of the raw point. The key itself follows in transfer-key, after
-// the receiver has answered with its own.
 func commitment(pub string) (string, error) {
 	raw, err := base64.StdEncoding.DecodeString(pub)
 	if err != nil {
@@ -44,8 +36,6 @@ func commitment(pub string) (string, error) {
 	return base64.StdEncoding.EncodeToString(sum[:]), nil
 }
 
-// shared derives the transfer key and the 4-character verification code
-// both sides display; a relay that swapped keys yields mismatched codes.
 func shared(kp keypair, theirPub string) (cipher.AEAD, string, error) {
 	raw, err := base64.StdEncoding.DecodeString(theirPub)
 	if err != nil {

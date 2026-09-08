@@ -495,7 +495,6 @@ func TestEncryptedOfferNegotiation(t *testing.T) {
 		t.Fatalf("Wire = %d, want %d", tr.Wire, want)
 	}
 
-	// The receiver may not reveal a key; the sender may, exactly while accepted.
 	sendText(h, b, protocol.TypeTransferKey, protocol.TransferKey{ID: id.String(), Key: "pubA"})
 	if lastOfType(drain(t, b), protocol.TypeError) == nil {
 		t.Fatal("receiver's transfer-key accepted")

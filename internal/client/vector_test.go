@@ -8,9 +8,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// The same vector is checked against WebCrypto in web/test/crypto.test.mjs,
-// so a terminal and a browser are proven to agree on every byte: the
-// commitment, the verification code, and a sealed chunk.
 const (
 	vectorID    = "0f1e2d3c-4b5a-4978-8796-a5b4c3d2e1f0"
 	vectorSeq   = 3

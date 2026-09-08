@@ -1,7 +1,3 @@
-// Writes received chunks straight into a part file in the origin-private
-// file system. Sync access handles only exist in workers; every write lands
-// on disk, so a transfer survives a closed tab. `flushed` is the byte count
-// the main thread may safely record as resumable.
 let dir = null,
   handle = null,
   id = "",

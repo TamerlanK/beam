@@ -425,8 +425,6 @@ function initDrag() {
   });
 }
 
-// Files that come with a file-system handle can be reopened after a reload,
-// which is what lets a send resume. The picker and drops give one on Chromium.
 async function pickFiles(target) {
   if (typeof showOpenFilePicker === "function") {
     try {

@@ -31,7 +31,7 @@ export function initHistory() {
       kind: t.kind,
       state: t.state,
       note: t.note,
-      preview: t.preview || undefined, // ponytail: ≤40KB each, 50 max; drop from history if localStorage quota bites
+      preview: t.preview || undefined,
       peerId: t.peerId,
       peerName: peer ? peer.name : t.peerName || "that device",
       peerEmoji: peer ? peer.emoji : "",

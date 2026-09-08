@@ -44,11 +44,10 @@ type Limits struct {
 	MaxConnsPerIP    int
 	RelayBytesPerSec int64
 
-	// MaxDropBytes caps one drop's plaintext size; 0 disables drops.
 	MaxDropBytes int64
-	// DropBudget caps the ciphertext the hub holds across all drops; 0 = unlimited.
+
 	DropBudget int64
-	// DropTTL is how long a held drop waits for pickup (default 10 minutes).
+
 	DropTTL time.Duration
 }
 
@@ -529,8 +528,6 @@ func (h *Hub) handleCancel(c *Client, m protocol.TransferCancel) {
 	h.logTransfer(t, "transfer canceled", "by", c.ID)
 }
 
-// handleKey forwards the sender's revealed public key once the receiver has
-// accepted and before any chunk: the offer only carried a commitment to it.
 func (h *Hub) handleKey(c *Client, m protocol.TransferKey) {
 	t := h.lookupTransfer(c, m.ID)
 	if t == nil {
@@ -694,8 +691,6 @@ func (h *Hub) handleWritten(w written) {
 	h.advance(t)
 }
 
-// advance moves a transfer one chunk forward once the receiver consumed one:
-// a relay hands the sender a credit, a drop pickup pushes the next held frame.
 func (h *Hub) advance(t *Transfer) {
 	if t.drop != nil {
 		h.pushDrop(t)
@@ -716,8 +711,6 @@ func (h *Hub) grantCredit(t *Transfer) {
 	}
 }
 
-// ponytail: the budget refills on the one-second ticker, so a throttled
-// transfer moves in one-second bursts. Upgrade path: a 100ms ticker.
 func (h *Hub) refillRelay() {
 	if h.limits.RelayBytesPerSec == 0 {
 		return
@@ -744,7 +737,7 @@ func (h *Hub) failTransfer(t *Transfer, reason string) {
 	delete(h.transfers, t.ID)
 	h.logTransfer(t, "transfer failed", "reason", reason)
 	if d := t.drop; d != nil && d.pickup == t {
-		// The drop survives a failed pickup; re-offer it if the addressee is still here.
+
 		d.pickup = nil
 		h.announce(d)
 	}
@@ -778,10 +771,6 @@ func (h *Hub) logTransfer(t *Transfer, msg string, args ...any) {
 	}, args...)...)
 }
 
-// roomKey groups devices that share a network. IPv4 devices behind one NAT
-// share a public address; IPv6 devices on one LAN each have their own
-// address inside a shared /64, so the prefix is the network.
-// ponytail: self-hosted on a LAN every client has its own private IP; put them all in one room
 func roomKey(ipStr string) string {
 	ip := net.ParseIP(ipStr)
 	if ip == nil {

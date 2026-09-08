@@ -114,8 +114,6 @@ func identity(r *http.Request) (id, name, emoji string) {
 	return id, name, emoji
 }
 
-// publicKey accepts a raw uncompressed P-256 point (65 bytes, base64); the
-// hub never uses it, it only hands it to peers who seal drops with it.
 func publicKey(s string) string {
 	if len(s) > protocol.MaxKeyChars {
 		return ""

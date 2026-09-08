@@ -15,8 +15,6 @@ func dropHub() *Hub {
 	return testHubLimits(Limits{MaxDropBytes: 1 << 20, DropBudget: 4 << 20, DropTTL: time.Minute})
 }
 
-// uploadDrop creates a drop from c and streams `chunks` sealed-size chunks
-// (ChunkSize+TagBytes each, last one shorter) so that it becomes held.
 func uploadDrop(t *testing.T, h *Hub, c *Client, id uuid.UUID, to string, size int64) [][]byte {
 	t.Helper()
 	sendText(h, c, protocol.TypeDropCreate, protocol.DropCreate{ID: id.String(), To: to, Name: "note.pdf", Size: size, Key: "PUB"})
@@ -93,13 +91,11 @@ func TestDropUploadHoldAndPickup(t *testing.T) {
 		t.Fatalf("drop-waiting = %+v", w)
 	}
 
-	// The creator leaves; the drop must survive.
 	h.removeClient(a)
 	if h.drops[id] == nil {
 		t.Fatal("held drop was deleted when its creator disconnected")
 	}
 
-	// The addressee leaves and comes back: it is told again.
 	h.removeClient(b)
 	b = addTestClient(h, "b", "1.1.1.1")
 	if lastOfType(drain(t, b), protocol.TypeDropWaiting) == nil {
@@ -134,7 +130,6 @@ func TestDropPickupResumesFromOffset(t *testing.T) {
 	frames := uploadDrop(t, h, a, id, "b", 4*protocol.ChunkSize)
 	drain(t, b)
 
-	// Start a pickup, then lose the receiver mid-way: the drop must stay.
 	sendText(h, b, protocol.TypeDropAccept, protocol.DropAccept{ID: id.String()})
 	<-b.send
 	h.removeClient(b)
@@ -210,12 +205,12 @@ func TestDropAddresseeOnly(t *testing.T) {
 			t.Fatalf("%s error code = %s", msgType, e.Code)
 		}
 	}
-	// A bystander cannot cancel an addressed drop either.
+
 	sendText(h, s, protocol.TypeDropCancel, protocol.DropCancel{ID: id.String()})
 	if h.drops[id] == nil {
 		t.Fatal("bystander canceled someone else's drop")
 	}
-	// The addressee can decline it.
+
 	sendText(h, b, protocol.TypeDropCancel, protocol.DropCancel{ID: id.String()})
 	if h.drops[id] != nil {
 		t.Fatal("addressee could not decline the drop")
@@ -311,7 +306,6 @@ func TestDropExpiryAndPartialUpload(t *testing.T) {
 		t.Fatalf("reason = %s", gone.Reason)
 	}
 
-	// A half-uploaded drop dies with its creator and never reaches the addressee.
 	id2 := uuid.New()
 	sendText(h, a, protocol.TypeDropCreate, protocol.DropCreate{ID: id2.String(), To: "b", Name: "big", Size: 3 * protocol.ChunkSize})
 	drain(t, a)
@@ -325,7 +319,6 @@ func TestDropExpiryAndPartialUpload(t *testing.T) {
 		t.Fatal("addressee was offered a partial drop")
 	}
 
-	// Overflowing the declared size kills the drop.
 	c := addTestClient(h, "c", "1.1.1.1")
 	drain(t, c)
 	id3 := uuid.New()

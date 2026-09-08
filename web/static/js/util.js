@@ -15,7 +15,6 @@ export function el(tag, attrs = {}, ...children) {
   return n;
 }
 
-// ponytail: randomUUID needs https; plain http on a LAN address doesn't get it
 export function uuid() {
   if (crypto.randomUUID) return crypto.randomUUID();
   const b = crypto.getRandomValues(new Uint8Array(16));

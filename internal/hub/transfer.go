@@ -63,14 +63,10 @@ type Transfer struct {
 
 	Deadline time.Time
 
-	// drop is set when the hub itself is the sender, replaying a held
-	// drop's frames; cursor is the next frame index to push.
 	drop   *Drop
 	cursor int
 }
 
-// party reports whether id is bound to the transfer's fate: the receiver
-// always, the sender only for live relays (a drop outlives its creator).
 func (t *Transfer) party(id string) bool {
 	return t.ToID == id || (t.drop == nil && t.FromID == id)
 }

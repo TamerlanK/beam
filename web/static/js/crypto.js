@@ -50,9 +50,6 @@ export async function shared(priv, myPub, theirPub) {
   };
 }
 
-// A commitment to a public key: the offer carries this, the key itself
-// follows only after the receiver has answered with its own, so a relay
-// that substitutes keys cannot grind for a matching verification code.
 export const commit = async (pub) =>
   b64(await crypto.subtle.digest("SHA-256", unb64(pub)));
 
@@ -62,9 +59,6 @@ function iv(n) {
   return b;
 }
 
-// The browser's long-lived ECDH keypair, kept in IndexedDB as a
-// non-extractable CryptoKey so the private half never exists as bytes.
-// ponytail: if IndexedDB is unavailable (private mode) the key lives one session
 export async function deviceKeypair() {
   try {
     const k = await get("ecdh");

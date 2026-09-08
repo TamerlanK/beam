@@ -6,7 +6,6 @@ JSTEST = node --test "web/test/**/*.test.mjs"
 run:
 	go run ./cmd/beam
 
-# -v also makes gow kill every descendant on restart; without it (Windows) only go.exe dies and the old beam.exe keeps port 8080
 dev:
 	gow -v -e=go,html,css,js run ./cmd/beam
 
@@ -25,7 +24,6 @@ fmt:
 	gofmt -w .
 	$(PRETTIER) --write web
 
-# same checks as CI
 lint:
 	go vet ./...
 	! gofmt -l . | grep .

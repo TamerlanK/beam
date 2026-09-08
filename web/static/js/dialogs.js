@@ -78,7 +78,6 @@ function initProfile() {
     const me = state.self || identity();
     name.value = me.name;
     const list = EMOJIS.includes(me.emoji) ? EMOJIS : [me.emoji, ...EMOJIS];
-    // The role goes on only once there are radios inside; an empty radiogroup is an a11y violation.
     grid.setAttribute("role", "radiogroup");
     grid.replaceChildren(
       ...list.map((e) =>

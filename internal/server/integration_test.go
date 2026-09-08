@@ -459,9 +459,6 @@ func TestMaxConnsPerIPClosesSocket(t *testing.T) {
 	first.expect(protocol.TypeRoomCreated)
 }
 
-// TestDropSurvivesSenderAndReceiverLeaving is the async drop box end to end:
-// A leaves a file for B while B is away, A disconnects, B comes back with the
-// same device id and picks it up byte-for-byte.
 func TestDropSurvivesSenderAndReceiverLeaving(t *testing.T) {
 	addr, stop := startServer(t, func(c *Config) {
 		c.Limits.MaxDropBytes = 8 << 20
@@ -498,7 +495,6 @@ func TestDropSurvivesSenderAndReceiverLeaving(t *testing.T) {
 	b.close()
 	a.expect(protocol.TypePeerLeft)
 
-	// The wire carries one 16-byte tag per chunk; the test pads chunks the same way.
 	sealed := make([]byte, 0, protocol.WireSize(int64(len(payload))))
 	for off := 0; off < len(payload); off += protocol.ChunkSize {
 		end := min(off+protocol.ChunkSize, len(payload))

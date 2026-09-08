@@ -1,5 +1,3 @@
-// One IndexedDB key-value store: device keys, and the state that lets a
-// transfer resume after a reload. Values may hold CryptoKeys and file handles.
 function kv(mode, op) {
   return new Promise((resolve, reject) => {
     const open = indexedDB.open("beam", 1);
