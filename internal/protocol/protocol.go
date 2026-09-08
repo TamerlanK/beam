@@ -26,6 +26,10 @@ const (
 
 	MaxFilenameBytes = 255
 
+	MaxPathBytes = 1024
+
+	MaxBatchFiles = 1 << 20
+
 	MaxDeclaredSize = 50 << 30
 
 	MaxSnippetBytes = 8 * 1024
@@ -158,6 +162,7 @@ type DropCreate struct {
 	ID      string `json:"id"`
 	To      string `json:"to,omitempty"`
 	Name    string `json:"name"`
+	Path    string `json:"path,omitempty"`
 	Size    int64  `json:"size"`
 	Mime    string `json:"mime,omitempty"`
 	Key     string `json:"key,omitempty"`
@@ -175,6 +180,7 @@ type DropWaiting struct {
 	ID        string `json:"id"`
 	From      *Peer  `json:"from,omitempty"`
 	Name      string `json:"name"`
+	Path      string `json:"path,omitempty"`
 	Size      int64  `json:"size"`
 	Mime      string `json:"mime,omitempty"`
 	Key       string `json:"key,omitempty"`
@@ -222,6 +228,7 @@ type TransferOffer struct {
 	To   string `json:"to,omitempty"`
 	From *Peer  `json:"from,omitempty"`
 	Name string `json:"name"`
+	Path string `json:"path,omitempty"`
 	Size int64  `json:"size"`
 	Mime string `json:"mime,omitempty"`
 	Key  string `json:"key,omitempty"`
@@ -229,6 +236,14 @@ type TransferOffer struct {
 	Preview string `json:"preview,omitempty"`
 
 	Offset int64 `json:"offset,omitempty"`
+
+	Batch *Batch `json:"batch,omitempty"`
+}
+
+type Batch struct {
+	ID    string `json:"id"`
+	Files int    `json:"files"`
+	Bytes int64  `json:"bytes"`
 }
 
 type TransferAnswer struct {
@@ -310,6 +325,30 @@ func ValidPreview(p string) bool {
 
 func ValidOffset(offset, size int64) bool {
 	return offset >= 0 && offset < size && offset%ChunkSize == 0
+}
+
+func ValidBatch(b *Batch) bool {
+	if b == nil {
+		return true
+	}
+	id, err := uuid.Parse(b.ID)
+	return err == nil && id != uuid.Nil && b.Files > 0 && b.Files <= MaxBatchFiles && b.Bytes > 0 && b.Bytes <= MaxDeclaredSize*MaxBatchFiles
+}
+
+func SplitPath(p string) ([]string, bool) {
+	if p == "" {
+		return nil, true
+	}
+	if len(p) > MaxPathBytes {
+		return nil, false
+	}
+	segs := strings.Split(strings.ReplaceAll(p, "\\", "/"), "/")
+	for _, s := range segs {
+		if s == "" || s == "." || s == ".." || len(s) > MaxFilenameBytes {
+			return nil, false
+		}
+	}
+	return segs, true
 }
 
 func WireSize(size int64) int64 {

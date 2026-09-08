@@ -24,9 +24,9 @@ const usage = `beam drops files between any two devices.
 
   beam [serve] [flags]         run the server (default)
   beam ls                      list the devices in your room
-  beam send [flags] FILE...    send files to a device
+  beam send [flags] PATH...    send files or whole folders to a device
   beam send -text "..."        send a note to a device
-  beam recv [flags]            receive files into a directory
+  beam recv [flags]            receive files and folders into a directory
 
 Run "beam <command> -h" for its flags. BEAM_SERVER sets the default server.
 `
@@ -207,19 +207,24 @@ func ls(ctx context.Context, o *opts) error {
 func send(ctx context.Context, o *opts, to, text string, paths []string) error {
 	switch {
 	case text == "" && len(paths) == 0:
-		return errors.New("nothing to send: name files, or a note with -text")
+		return errors.New("nothing to send: name files or folders, or a note with -text")
 	case text != "" && len(paths) > 0:
 		return errors.New("send files or a note, not both")
 	case len(text) > protocol.MaxSnippetBytes:
 		return fmt.Errorf("the note is longer than %d bytes", protocol.MaxSnippetBytes)
 	}
 	var files []client.File
+	skipped := 0
 	for _, p := range paths {
-		f, err := client.Stat(p)
+		fs, n, err := client.Expand(p)
 		if err != nil {
 			return err
 		}
-		files = append(files, f)
+		files = append(files, fs...)
+		skipped += n
+	}
+	if skipped > 0 {
+		say("Skipping %d empty or special files", skipped)
 	}
 	s, err := o.connect()
 	if err != nil {
@@ -240,19 +245,33 @@ func send(ctx context.Context, o *opts, to, text string, paths []string) error {
 	label := files[0].Name
 	if len(files) > 1 {
 		label = fmt.Sprintf("%d files", len(files))
+		dirs := make([]string, len(files))
+		for i, f := range files {
+			dirs[i] = f.Dir
+		}
+		if top := folderOf(dirs); top != "" {
+			label = top + "/"
+		}
 	}
 	snd.OnStart = func(f client.File, sas string) {
 		if sas == "" {
-			say("Sending %s (%s) to %s, not encrypted: their browser has no crypto", f.Name, client.HumanBytes(f.Size), peer.Name)
+			say("Sending %s (%s) to %s, not encrypted: their browser has no crypto", f.Label(), client.HumanBytes(f.Size), peer.Name)
 		} else {
-			say("Sending %s (%s) to %s · verify %s", f.Name, client.HumanBytes(f.Size), peer.Name, sas)
+			say("Sending %s (%s) to %s · verify %s", f.Label(), client.HumanBytes(f.Size), peer.Name, sas)
 		}
 	}
+	declined := false
 	snd.OnDone = func(f client.File, err error) {
-		if err != nil {
-			say("%s: %v", f.Name, err)
-		} else {
-			say("Sent %s", f.Name)
+		switch {
+		case err == nil:
+			say("Sent %s", f.Label())
+		case err.Error() == "declined" && len(files) > 1:
+			if !declined {
+				declined = true
+				say("%s declined", peer.Name)
+			}
+		default:
+			say("%s: %v", f.Label(), err)
 		}
 	}
 	snd.OnProgress = func() {
@@ -449,7 +468,7 @@ func recv(ctx context.Context, o *opts, dir string, yes, once bool) error {
 		say("Note from %s:\n%s", from.Name, text)
 	}
 	r.OnExpired = func(off *client.Offer, reason string) {
-		say("%s from %s: %s", off.Name, off.From.Name, reason)
+		say("%s from %s: %s", off.Label(), off.From.Name, reason)
 	}
 	r.OnProgress = func() {
 		got, total := r.Progress()
@@ -467,7 +486,7 @@ func recv(ctx context.Context, o *opts, dir string, yes, once bool) error {
 		if yes {
 			for _, off := range pend {
 				if err := r.Answer(off, true); err != nil {
-					say("%s: %v", off.Name, err)
+					say("%s: %v", off.Label(), err)
 				}
 			}
 			return
@@ -505,8 +524,8 @@ func recv(ctx context.Context, o *opts, dir string, yes, once bool) error {
 		case d := <-decisions:
 			asking = false
 			for _, off := range d.offers {
-				if err := r.Answer(off, d.accept); err != nil {
-					say("%s: %v", off.Name, err)
+				if err := r.Answer(off, d.accept); err != nil && !errors.Is(err, client.ErrExpired) {
+					say("%s: %v", off.Label(), err)
 				}
 			}
 		case <-tick.C:
@@ -531,25 +550,45 @@ func recv(ctx context.Context, o *opts, dir string, yes, once bool) error {
 func question(group []*client.Offer) string {
 	var b strings.Builder
 	var total int64
+	count := len(group)
+	dirs := make([]string, len(group))
 	for i, off := range group {
 		total += off.Size
+		dirs[i] = off.Dir
 		if len(group) > 1 && i < 10 {
-			_, _ = fmt.Fprintf(&b, "  %s  %s\n", off.Name, client.HumanBytes(off.Size))
+			_, _ = fmt.Fprintf(&b, "  %s  %s\n", off.Label(), client.HumanBytes(off.Size))
 		}
 	}
-	if len(group) > 10 {
-		_, _ = fmt.Fprintf(&b, "  … and %d more\n", len(group)-10)
+	if batch := group[0].Batch; batch != nil && batch.Files > count {
+		count, total = batch.Files, batch.Bytes
+	}
+	if count > 10 {
+		_, _ = fmt.Fprintf(&b, "  … and %d more\n", count-10)
 	}
 	enc := ""
 	if !group[0].Encrypted {
 		enc = ", not encrypted"
 	}
-	if len(group) == 1 {
-		_, _ = fmt.Fprintf(&b, "Accept %s (%s%s) from %s? [y/N] ", group[0].Name, client.HumanBytes(total), enc, group[0].From.Name)
-	} else {
-		_, _ = fmt.Fprintf(&b, "Accept %d files (%s%s) from %s? [y/N] ", len(group), client.HumanBytes(total), enc, group[0].From.Name)
+	what := fmt.Sprintf("%d files", count)
+	if count == 1 {
+		what = group[0].Label()
+	} else if top := folderOf(dirs); top != "" {
+		what = fmt.Sprintf("the folder %s (%d files)", top, count)
 	}
+	_, _ = fmt.Fprintf(&b, "Accept %s (%s%s) from %s? [y/N] ", what, client.HumanBytes(total), enc, group[0].From.Name)
 	return b.String()
+}
+
+func folderOf(dirs []string) string {
+	top := ""
+	for _, d := range dirs {
+		first, _, _ := strings.Cut(d, "/")
+		if first == "" || (top != "" && first != top) {
+			return ""
+		}
+		top = first
+	}
+	return top
 }
 
 var stderrTTY = isTerminal(os.Stderr)

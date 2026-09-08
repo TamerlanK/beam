@@ -23,12 +23,12 @@ async function roomFor(size) {
   }
 }
 
-export async function openSink(id, name, size, mime, dir) {
+export async function openSink(id, name, size, mime, dir, path = "") {
   let target = null;
   if (dir !== null && typeof showSaveFilePicker === "function") {
     try {
       target = dir
-        ? await dir.getFileHandle(name, { create: true })
+        ? await freshFile(dir, path, name)
         : await showSaveFilePicker({ suggestedName: name });
     } catch {
       target = null;
@@ -45,6 +45,25 @@ export async function openSink(id, name, size, mime, dir) {
     } catch {}
   }
   return memorySink(name, mime);
+}
+
+async function freshFile(dir, path, name) {
+  for (const seg of path ? path.split("/") : [])
+    dir = await dir.getDirectoryHandle(seg, { create: true });
+  const dot = name.lastIndexOf(".");
+  const ext = dot > 0 ? name.slice(dot) : "";
+  const stem = name.slice(0, name.length - ext.length);
+  for (let i = 0; i < 1000; i++) {
+    const cand = i ? `${stem} (${i})${ext}` : name;
+    try {
+      await dir.getFileHandle(cand);
+    } catch (e) {
+      if (e && e.name === "NotFoundError")
+        return dir.getFileHandle(cand, { create: true });
+      throw e;
+    }
+  }
+  throw new Error(`too many files named ${name}`);
 }
 
 export const reopenSink = (id, name, mime, target) =>

@@ -423,6 +423,11 @@ func (h *Hub) handleOffer(c *Client, m protocol.TransferOffer) {
 		h.sendErr(c, protocol.ErrCodeBadMessage, "bad filename")
 		return
 	}
+	dir, ok := sanitizePath(m.Path)
+	if !ok {
+		h.sendErr(c, protocol.ErrCodeBadMessage, "path must be relative folder segments of at most 1KB")
+		return
+	}
 	if m.Size <= 0 || m.Size > protocol.MaxDeclaredSize {
 		h.sendErr(c, protocol.ErrCodeBadMessage, "size must be between 1 byte and 50GB")
 		return
@@ -437,6 +442,10 @@ func (h *Hub) handleOffer(c *Client, m protocol.TransferOffer) {
 	}
 	if !protocol.ValidPreview(m.Preview) {
 		h.sendErr(c, protocol.ErrCodeBadMessage, "preview must be a data:image URL of at most 40KB")
+		return
+	}
+	if !protocol.ValidBatch(m.Batch) {
+		h.sendErr(c, protocol.ErrCodeBadMessage, "batch must have a UUID id and positive file and byte counts")
 		return
 	}
 	target := h.clients[m.To]
@@ -465,7 +474,7 @@ func (h *Hub) handleOffer(c *Client, m protocol.TransferOffer) {
 	h.transfers[id] = t
 	from := c.Peer()
 	h.sendJSON(target, protocol.TypeTransferOffer, protocol.TransferOffer{
-		ID: m.ID, From: &from, Name: name, Size: m.Size, Mime: mime, Key: m.Key, Preview: m.Preview, Offset: m.Offset,
+		ID: m.ID, From: &from, Name: name, Path: dir, Size: m.Size, Mime: mime, Key: m.Key, Preview: m.Preview, Offset: m.Offset, Batch: m.Batch,
 	})
 	h.logTransfer(t, "transfer offered")
 }
@@ -794,12 +803,26 @@ func sanitizeFilename(name string) string {
 		}
 		return r
 	}, name)
-	if name == "." || name == ".." {
-		return ""
-	}
 	for len(name) > protocol.MaxFilenameBytes {
 		_, size := utf8.DecodeLastRuneInString(name)
 		name = name[:len(name)-size]
 	}
-	return strings.TrimSpace(name)
+	name = strings.TrimSpace(name)
+	if name == "." || name == ".." || name == "/" {
+		return ""
+	}
+	return name
+}
+
+func sanitizePath(p string) (string, bool) {
+	segs, ok := protocol.SplitPath(p)
+	if !ok {
+		return "", false
+	}
+	for i, s := range segs {
+		if segs[i] = sanitizeFilename(s); segs[i] == "" {
+			return "", false
+		}
+	}
+	return strings.Join(segs, "/"), true
 }

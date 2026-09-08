@@ -442,3 +442,49 @@ neither the server nor disk holds partial state; a reload or a two-minute
 gap fails the transfer for real. Memory-backed sinks (Firefox, Safari)
 resume as well because the parts array survives the pause. The re-offer
 is retried at most every 30 seconds until the two-minute timer expires.
+
+---
+
+## 2026-09-08 — Folders are a batch of files, not an archive
+
+**Context.** Sending a folder was the first thing users reached for and
+the one thing beam could not do. The obvious shortcut is to zip on the
+sender and unzip on the receiver, which needs an archive writer in the
+browser, hides per-file progress, breaks resume for anything but the whole
+archive, and runs into the 50GB per-transfer cap for big folders.
+
+**Decision.** A folder is sent as its files. Each offer may carry a `path`,
+the folder the file belongs in relative to wherever the receiver saves,
+with the picked folder's own name as the first segment; the hub validates
+it like a filename per segment and rejects `.`, `..`, empty segments and
+anything over 1KB, and both receivers sanitize it again before touching a
+filesystem. The web sender walks a folder through the File System Access
+API, `webkitdirectory`, or the drag-and-drop entry API, whichever the
+browser has; the Go client walks it with `filepath.WalkDir`, skipping
+empty and non-regular files. A Chromium receiver asks for one directory
+and recreates the tree inside it; Firefox and Safari fall back to a flat
+download per file, the same degradation they already have for single
+files. Existing names get a `(1)` suffix on every platform instead of being
+overwritten.
+
+One accept for the whole folder needs the receiver to know about files it
+has not been offered yet, because a sender keeps at most 24 offers in
+flight and the hub caps live transfers at 32. So every offer of one send
+gesture carries a `batch`: a UUID plus the total file count and byte
+count. The receiver prompts once with those totals, remembers its answer
+per batch id and peer for 10 minutes, and applies it silently to the
+offers that follow. A decline is remembered too, and the sender withdraws
+the rest of the batch on the first decline, so a 500-file folder is
+answered exactly once either way. Multi-file selections get the same
+treatment, which fixes the pre-existing re-prompt every 24 files.
+
+**Consequences.** Nothing changed for the server beyond validating two
+fields and forwarding them; drops, resume, encryption and the direct
+WebRTC path work per file as before, and "Leave for later" keeps the
+path. The batch totals are the sender's claim, like `size`, so a receiver
+consents to what the prompt says and the hub still enforces every
+per-file cap. A folder of thousands of tiny files pays one offer/answer
+round trip per file, which the 24-deep pipeline keeps mostly hidden; an
+archive mode is the upgrade if that ever dominates. Firefox and Safari
+users get many downloads for a large folder, which those browsers may
+ask about; a service-worker zip stream is the next step there.

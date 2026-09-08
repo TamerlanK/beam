@@ -1,5 +1,5 @@
 import { state, on, emit, toast } from "./state.js";
-import { $, el, thumb, fmtSize, copyText } from "./util.js";
+import { $, el, thumb, fmtSize, copyText, folderOf, labelOf } from "./util.js";
 import { answerOffer, offerGroup, OFFER_TTL } from "./transfers.js";
 import { EMOJIS, identity, saveIdentity } from "./identity.js";
 import { linkFor, ttlText } from "./drops.js";
@@ -146,37 +146,46 @@ function initOffer() {
       if (modal.open) modal.close("drained");
       return;
     }
-    const rest = state.offers.length - group.length;
+    const rest = state.offers.filter((o) => !o.answering).length - group.length;
     queue.hidden = !rest;
     queue.textContent = `${rest} more waiting from another device`;
     const key = group.map((o) => o.id).join();
     if (current === key) return;
     current = key;
     const n = group.length;
+    const batch = d.batch && d.batch.files > n ? d.batch : null;
+    const count = batch ? batch.files : n;
+    const bytes = batch ? batch.bytes : group.reduce((s, o) => s + o.size, 0);
+    const top = folderOf(group);
     $("offerSender").textContent = d.from ? d.from.name : "Someone";
     $("offerVerb").textContent = d.drop ? "left you" : "wants to send you";
     $("offerEmoji").textContent = d.from ? d.from.emoji : "📦";
     $("offerWhat").textContent =
-      n === 1
+      count === 1
         ? "a file"
-        : `${n} files · ${fmtSize(group.reduce((s, o) => s + o.size, 0))}`;
-    $("offerAccept").textContent = n === 1 ? "Accept" : "Accept all";
-    $("offerFiles").replaceChildren(
-      ...group.map((o) =>
+        : top
+          ? `the folder ${top} · ${count} files · ${fmtSize(bytes)}`
+          : `${count} files · ${fmtSize(bytes)}`;
+    $("offerAccept").textContent = count === 1 ? "Accept" : "Accept all";
+    const rows = group.map((o) =>
+      el(
+        "li",
+        { class: "offer-file" },
+        el("span", { class: "tr-icon", "aria-hidden": "true" }, thumb(o)),
         el(
-          "li",
-          { class: "offer-file" },
-          el("span", { class: "tr-icon", "aria-hidden": "true" }, thumb(o)),
-          el(
-            "span",
-            {},
-            el("span", { class: "offer-name", text: o.name }),
-            el("br"),
-            el("span", { class: "offer-size", text: fmtSize(o.size) }),
-          ),
+          "span",
+          {},
+          el("span", { class: "offer-name", text: labelOf(o) }),
+          el("br"),
+          el("span", { class: "offer-size", text: fmtSize(o.size) }),
         ),
       ),
     );
+    if (count > n)
+      rows.push(
+        el("li", { class: "offer-more", text: `… and ${count - n} more` }),
+      );
+    $("offerFiles").replaceChildren(...rows);
     const img = $("offerPreview");
     img.hidden = !(n === 1 && d.preview);
     if (!img.hidden) img.src = d.preview;

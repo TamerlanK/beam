@@ -103,8 +103,8 @@
 
           <div id="dropHint" class="drop-hint" aria-hidden="true">
             <span
-              >Drop on a device to send now, or anywhere to pick a device
-              after</span
+              >Drop files or folders on a device to send now, or anywhere to
+              pick a device after</span
             >
           </div>
 
@@ -156,7 +156,7 @@
               >
             </p>
             <p id="selfHint" class="self-hint">
-              Drop files on a device, or anywhere to choose one after
+              Drop files or folders on a device, or anywhere to choose one after
             </p>
           </div>
         </section>
@@ -422,6 +422,7 @@
 
     <div id="toasts" class="toasts" aria-live="polite" popover="manual"></div>
     <input type="file" id="filePicker" multiple hidden />
+    <input type="file" id="folderPicker" webkitdirectory hidden />
 
     <template id="peerT">
       <div class="peer" role="listitem">
@@ -438,6 +439,11 @@
             </span>
             <span class="peer-name"></span>
             <span class="peer-sub"></span>
+          </button>
+          <button class="folder-btn" type="button">
+            <svg class="i" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M3 6h6l2 2.5h10V19H3z" />
+            </svg>
           </button>
           <button class="note-btn" type="button">
             <svg class="i" viewBox="0 0 24 24" aria-hidden="true">

@@ -1,7 +1,11 @@
-import { state, on, isDone } from "./state.js";
+import { state, on, isDone, toast } from "./state.js";
 import { $, icon, fmtRate, fmtLeft } from "./util.js";
 import { rateOf, etaOf, queueFiles } from "./transfers.js";
 import { sendShared, stageFiles } from "./share.js";
+
+const canPickFolder =
+  typeof showDirectoryPicker === "function" ||
+  "webkitdirectory" in HTMLInputElement.prototype;
 
 const PAD = 60;
 const R_MIN = 150;
@@ -12,7 +16,15 @@ const CIRC = 289;
 const SVG = "http://www.w3.org/2000/svg";
 const cards = new Map();
 const beams = new Map();
-let field, ringsSvg, sweep, pulses, beamsSvg, peersEl, selfNode, picker;
+let field,
+  ringsSvg,
+  sweep,
+  pulses,
+  beamsSvg,
+  peersEl,
+  selfNode,
+  picker,
+  folderPicker;
 let geo = null;
 let grid = false;
 let onNote = () => {};
@@ -27,6 +39,7 @@ export function initRadar(opts) {
   peersEl = $("peers");
   selfNode = $("selfNode");
   picker = $("filePicker");
+  folderPicker = $("folderPicker");
 
   new ResizeObserver(() => layout()).observe(field);
   on("layout", () => setTimeout(layout, 280));
@@ -48,7 +61,20 @@ export function initRadar(opts) {
     queueFiles(picker.dataset.target, picker.files);
     picker.value = "";
   });
+  folderPicker.addEventListener("change", () => {
+    const files = [...folderPicker.files].map(withRelativePath);
+    if (!files.length) toast("That folder has no files", "bad");
+    else queueFiles(folderPicker.dataset.target, files);
+    folderPicker.value = "";
+  });
   initDrag();
+}
+
+function withRelativePath(f) {
+  const rel = f.webkitRelativePath || "";
+  const cut = rel.lastIndexOf("/");
+  if (cut > 0) f.path = rel.slice(0, cut);
+  return f;
 }
 
 function measure() {
@@ -245,6 +271,10 @@ function addCard(p) {
   const note = el.querySelector(".note-btn");
   note.setAttribute("aria-label", `Send a note to ${p.name}`);
   note.addEventListener("click", () => onNote(p));
+  const folder = el.querySelector(".folder-btn");
+  folder.hidden = !canPickFolder;
+  folder.setAttribute("aria-label", `Send a folder to ${p.name}`);
+  folder.addEventListener("click", () => pickFolder(p.id));
 
   const c = { el, x: geo ? geo.cx : 0, y: geo ? geo.cy : 0, leaving: false };
   cards.set(p.id, c);
@@ -439,27 +469,94 @@ async function pickFiles(target) {
   picker.click();
 }
 
-async function withHandle(h) {
+async function pickFolder(target) {
+  if (typeof showDirectoryPicker === "function") {
+    try {
+      const dir = await showDirectoryPicker();
+      const files = await walkHandle(dir, dir.name);
+      if (!files.length) toast(`${dir.name} has no files`, "bad");
+      else queueFiles(target, files);
+      return;
+    } catch (e) {
+      if (e && e.name === "AbortError") return;
+    }
+  }
+  folderPicker.dataset.target = target;
+  folderPicker.click();
+}
+
+async function withHandle(h, path = "") {
   const f = await h.getFile();
   f.handle = h;
+  if (path) f.path = path;
   return f;
 }
 
-function filesOf(dt) {
-  const files = [...dt.files];
-  const items = [...dt.items].filter((i) => i.kind === "file");
-  if (
-    items.length !== files.length ||
-    !items.length ||
-    typeof items[0].getAsFileSystemHandle !== "function"
-  )
-    return Promise.resolve(files);
-  return Promise.all(
-    items.map((i) => i.getAsFileSystemHandle().catch(() => null)),
-  ).then((hs) => {
-    hs.forEach((h, i) => {
-      if (h && h.kind === "file") files[i].handle = h;
-    });
-    return files;
+async function walkHandle(dir, path) {
+  const entries = [];
+  for await (const h of dir.values()) entries.push(h);
+  entries.sort((a, b) => a.name.localeCompare(b.name));
+  const out = [];
+  for (const h of entries) {
+    if (h.kind === "directory")
+      for (const f of await walkHandle(h, `${path}/${h.name}`)) out.push(f);
+    else out.push(await withHandle(h, path));
+  }
+  return out;
+}
+
+function readAll(reader) {
+  return new Promise((resolve, reject) => {
+    const all = [];
+    const step = () =>
+      reader.readEntries((batch) => {
+        if (!batch.length) return resolve(all);
+        all.push(...batch);
+        step();
+      }, reject);
+    step();
   });
+}
+
+async function walkEntry(dir, path) {
+  const entries = await readAll(dir.createReader());
+  entries.sort((a, b) => a.name.localeCompare(b.name));
+  const out = [];
+  for (const e of entries) {
+    if (e.isDirectory)
+      for (const f of await walkEntry(e, `${path}/${e.name}`)) out.push(f);
+    else if (e.isFile) {
+      const f = await new Promise((resolve, reject) => e.file(resolve, reject));
+      f.path = path;
+      out.push(f);
+    }
+  }
+  return out;
+}
+
+async function expand({ handle, entry, file }) {
+  const h = await handle;
+  if (h)
+    return h.kind === "directory"
+      ? walkHandle(h, h.name)
+      : [await withHandle(h)];
+  if (entry && entry.isDirectory) return walkEntry(entry, entry.name);
+  return file ? [file] : [];
+}
+
+function filesOf(dt) {
+  const items = [...dt.items].filter((i) => i.kind === "file");
+  if (!items.length) return Promise.resolve([...dt.files]);
+  const picked = items.map((i) => ({
+    handle:
+      typeof i.getAsFileSystemHandle === "function"
+        ? i.getAsFileSystemHandle().catch(() => null)
+        : null,
+    entry:
+      typeof i.webkitGetAsEntry === "function" ? i.webkitGetAsEntry() : null,
+    file: i.getAsFile(),
+  }));
+  return Promise.all(picked.map((p) => expand(p).catch(() => []))).then(
+    (lists) => lists.flat(),
+  );
 }

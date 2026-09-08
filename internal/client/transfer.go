@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"mime"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -53,9 +54,12 @@ func reasonText(r string) string {
 type File struct {
 	Path string
 	Name string
+	Dir  string
 	Size int64
 	Mime string
 }
+
+func (f File) Label() string { return path.Join(f.Dir, f.Name) }
 
 func Stat(path string) (File, error) {
 	fi, err := os.Stat(path)
@@ -77,6 +81,59 @@ func Stat(path string) (File, error) {
 	return File{Path: path, Name: name, Size: fi.Size(), Mime: m}, nil
 }
 
+func Expand(root string) (files []File, skipped int, err error) {
+	fi, err := os.Stat(root)
+	if err != nil {
+		return nil, 0, err
+	}
+	if !fi.IsDir() {
+		f, err := Stat(root)
+		return []File{f}, 0, err
+	}
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return nil, 0, err
+	}
+	top := filepath.Base(abs)
+	if top == "" || top == "." || strings.ContainsAny(top, `/\:`) {
+		top = "folder"
+	}
+	err = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		info, err := os.Stat(p)
+		if err != nil || !info.Mode().IsRegular() || info.Size() == 0 {
+			skipped++
+			return nil
+		}
+		f, err := Stat(p)
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(root, p)
+		if err != nil {
+			return err
+		}
+		f.Dir = path.Join(top, filepath.ToSlash(filepath.Dir(rel)))
+		if _, ok := protocol.SplitPath(f.Dir); !ok {
+			return fmt.Errorf("%s: folder path too long or not sendable", p)
+		}
+		files = append(files, f)
+		return nil
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	if len(files) == 0 {
+		return nil, 0, fmt.Errorf("%s has no files to send", root)
+	}
+	return files, skipped, nil
+}
+
 type sendXfer struct {
 	id      uuid.UUID
 	f       File
@@ -95,6 +152,7 @@ type sendXfer struct {
 type Sender struct {
 	c     *Client
 	to    string
+	batch *protocol.Batch
 	xfers []*sendXfer
 	byID  map[uuid.UUID]*sendXfer
 	frame []byte
@@ -107,10 +165,15 @@ type Sender struct {
 
 func NewSender(c *Client, to string, files []File) *Sender {
 	s := &Sender{c: c, to: to, byID: map[uuid.UUID]*sendXfer{}, frame: make([]byte, protocol.MaxFrameSize)}
+	var total int64
 	for _, f := range files {
 		x := &sendXfer{id: uuid.New(), f: f}
 		s.xfers = append(s.xfers, x)
 		s.byID[x.id] = x
+		total += f.Size
+	}
+	if len(files) > 1 {
+		s.batch = &protocol.Batch{ID: uuid.NewString(), Files: len(files), Bytes: total}
 	}
 	return s
 }
@@ -161,7 +224,7 @@ func (s *Sender) offer(x *sendXfer) {
 	}
 	x.state, x.since, x.credits = stOffered, time.Now(), 0
 	err := s.c.Send(protocol.TypeTransferOffer, protocol.TransferOffer{
-		ID: x.id.String(), To: s.to, Name: x.f.Name, Size: x.f.Size, Mime: x.f.Mime, Key: x.commit, Offset: hint,
+		ID: x.id.String(), To: s.to, Name: x.f.Name, Path: x.f.Dir, Size: x.f.Size, Mime: x.f.Mime, Key: x.commit, Offset: hint, Batch: s.batch,
 	})
 	if err != nil {
 		x.state = stPaused
@@ -240,6 +303,13 @@ func (s *Sender) Handle(ev Event) {
 
 func (s *Sender) answered(x *sendXfer, a protocol.TransferAnswer) {
 	if !a.Accept {
+		if s.batch != nil {
+			for _, y := range s.xfers {
+				if y.state == stQueued {
+					y.state, y.err = stFailed, errors.New("declined")
+				}
+			}
+		}
 		s.finish(x, errors.New("declined"))
 		return
 	}
@@ -375,15 +445,28 @@ func (s *Sender) Progress() (sent, total int64) {
 type Offer struct {
 	ID        uuid.UUID
 	Name      string
+	Dir       string
 	Size      int64
 	From      protocol.Peer
 	Encrypted bool
+	Batch     *protocol.Batch
 	commit    string
+}
+
+func (o *Offer) Label() string { return path.Join(o.Dir, o.Name) }
+
+const batchTTL = 10 * time.Minute
+
+type decision struct {
+	from   string
+	accept bool
+	at     time.Time
 }
 
 type recvXfer struct {
 	id     uuid.UUID
 	name   string
+	dir    string
 	size   int64
 	from   protocol.Peer
 	commit string
@@ -402,6 +485,7 @@ type Receiver struct {
 	dir     string
 	pending []*Offer
 	xfers   map[uuid.UUID]*recvXfer
+	batches map[string]decision
 
 	OnStart    func(name string, from protocol.Peer, sas string)
 	OnPause    func(name string, from protocol.Peer)
@@ -412,8 +496,10 @@ type Receiver struct {
 }
 
 func NewReceiver(c *Client, dir string) *Receiver {
-	return &Receiver{c: c, dir: dir, xfers: map[uuid.UUID]*recvXfer{}}
+	return &Receiver{c: c, dir: dir, xfers: map[uuid.UUID]*recvXfer{}, batches: map[string]decision{}}
 }
+
+func (x *recvXfer) label() string { return path.Join(x.dir, x.name) }
 
 func (r *Receiver) Pending() []*Offer { return slices.Clone(r.pending) }
 
@@ -443,7 +529,7 @@ func (r *Receiver) pause(x *recvXfer) {
 	}
 	x.state, x.since = stPaused, time.Now()
 	if r.OnPause != nil {
-		r.OnPause(x.name, x.from)
+		r.OnPause(x.label(), x.from)
 	}
 }
 
@@ -499,7 +585,7 @@ func (r *Receiver) Handle(ev Event) {
 		}
 		x.key, x.sas = key, sas
 		if r.OnStart != nil {
-			r.OnStart(x.name, x.from, sas)
+			r.OnStart(x.label(), x.from, sas)
 		}
 	case protocol.TypeTransferFailed:
 		var m protocol.TransferFailed
@@ -550,10 +636,10 @@ func (r *Receiver) offered(data json.RawMessage) {
 	if err != nil {
 		return
 	}
-	name := safeName(m.Name)
+	name, dir := safeName(m.Name), safePath(m.Path)
 	if x := r.xfers[id]; x != nil {
 		switch {
-		case (x.state == stActive || x.state == stPaused) && x.from.ID == m.From.ID && x.name == name && x.size == m.Size:
+		case (x.state == stActive || x.state == stPaused) && x.from.ID == m.From.ID && x.name == name && x.dir == dir && x.size == m.Size:
 			r.resume(x, m)
 		case x.state == stDone:
 
@@ -566,7 +652,13 @@ func (r *Receiver) offered(data json.RawMessage) {
 			return
 		}
 	}
-	r.pending = append(r.pending, &Offer{ID: id, Name: name, Size: m.Size, From: *m.From, Encrypted: m.Key != "", commit: m.Key})
+	o := &Offer{ID: id, Name: name, Dir: dir, Size: m.Size, From: *m.From, Encrypted: m.Key != "", Batch: m.Batch, commit: m.Key}
+	r.pending = append(r.pending, o)
+	if m.Batch != nil {
+		if d, ok := r.batches[m.Batch.ID]; ok && d.from == m.From.ID && time.Since(d.at) < batchTTL {
+			_ = r.Answer(o, d.accept)
+		}
+	}
 }
 
 func (r *Receiver) resume(x *recvXfer, m protocol.TransferOffer) {
@@ -598,7 +690,7 @@ func (r *Receiver) resume(x *recvXfer, m protocol.TransferOffer) {
 		return
 	}
 	if x.commit == "" && r.OnStart != nil {
-		r.OnStart(x.name, x.from, "")
+		r.OnStart(x.label(), x.from, "")
 	}
 }
 
@@ -610,10 +702,13 @@ func (r *Receiver) Answer(o *Offer, accept bool) error {
 		return ErrExpired
 	}
 	r.pending = slices.Delete(r.pending, i, i+1)
+	if o.Batch != nil {
+		r.batches[o.Batch.ID] = decision{from: o.From.ID, accept: accept, at: time.Now()}
+	}
 	if !accept {
 		return r.c.Send(protocol.TypeTransferAnswer, protocol.TransferAnswer{ID: o.ID.String()})
 	}
-	x := &recvXfer{id: o.ID, name: o.Name, size: o.Size, from: o.From, commit: o.commit, state: stActive}
+	x := &recvXfer{id: o.ID, name: o.Name, dir: o.Dir, size: o.Size, from: o.From, commit: o.commit, state: stActive}
 	x.path = filepath.Join(r.dir, ".beam-"+o.ID.String()+".part")
 	f, err := os.OpenFile(x.path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {
@@ -636,7 +731,7 @@ func (r *Receiver) Answer(o *Offer, accept bool) error {
 		return nil
 	}
 	if x.commit == "" && r.OnStart != nil {
-		r.OnStart(x.name, x.from, "")
+		r.OnStart(x.label(), x.from, "")
 	}
 	return nil
 }
@@ -684,9 +779,13 @@ func (r *Receiver) finish(x *recvXfer) {
 		err = cerr
 	}
 	x.part = nil
+	dir := filepath.Join(r.dir, filepath.FromSlash(x.dir))
+	if err == nil {
+		err = os.MkdirAll(dir, 0o755)
+	}
 	var final string
 	if err == nil {
-		final, err = uniquePath(r.dir, x.name)
+		final, err = uniquePath(dir, x.name)
 	}
 	if err == nil {
 		err = os.Rename(x.path, final)
@@ -695,13 +794,13 @@ func (r *Receiver) finish(x *recvXfer) {
 		_ = os.Remove(x.path)
 		x.state = stFailed
 		if r.OnDone != nil {
-			r.OnDone(x.name, x.from, "", fmt.Errorf("couldn't save the file: %w", err))
+			r.OnDone(x.label(), x.from, "", fmt.Errorf("couldn't save the file: %w", err))
 		}
 		return
 	}
 	x.state = stDone
 	if r.OnDone != nil {
-		r.OnDone(x.name, x.from, final, nil)
+		r.OnDone(x.label(), x.from, final, nil)
 	}
 }
 
@@ -720,7 +819,7 @@ func (r *Receiver) abandon(x *recvXfer, err error) {
 	_ = os.Remove(x.path)
 	x.state = stFailed
 	if r.OnDone != nil {
-		r.OnDone(x.name, x.from, "", err)
+		r.OnDone(x.label(), x.from, "", err)
 	}
 }
 
@@ -768,6 +867,17 @@ func safeName(name string) string {
 		name = "file"
 	}
 	return name
+}
+
+func safePath(p string) string {
+	segs, ok := protocol.SplitPath(p)
+	if !ok {
+		return ""
+	}
+	for i, s := range segs {
+		segs[i] = safeName(s)
+	}
+	return strings.Join(segs, "/")
 }
 
 func uniquePath(dir, name string) (string, error) {

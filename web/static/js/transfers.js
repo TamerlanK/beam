@@ -1,5 +1,12 @@
 import { state, emit, on, isDone, peerName, toast } from "./state.js";
-import { uuid, uuidBytes, bytesToUUID } from "./util.js";
+import {
+  uuid,
+  uuidBytes,
+  bytesToUUID,
+  cleanPath,
+  folderOf,
+  labelOf,
+} from "./util.js";
 import { fileKind } from "./icons.js";
 import {
   available as e2e,
@@ -27,10 +34,13 @@ const MISSED_TTL = 60000;
 const CREATE_TTL = 10000;
 const SAVE_EVERY = 1000;
 const RECORD_TTL = 24 * 3600 * 1000;
+const BATCH_TTL = 10 * 60 * 1000;
 const MAX_INFLIGHT = 24;
 
 let socket = null;
 const queues = new Map();
+const batches = new Map();
+const batchDone = new Map();
 
 export const socketLink = {
   p2p: false,
@@ -49,17 +59,31 @@ export function bindSocket(s) {
 export function queueFiles(peerId, files) {
   if (!files || !files.length || !state.peers.has(peerId)) return;
   const q = queues.get(peerId) || [];
-  let added = 0;
+  const add = [];
   for (const f of files) {
     if (f.size === 0) {
       toast(`"${f.name}" is empty, skipped`, "bad");
       continue;
     }
-    q.push(f);
-    added++;
+    add.push(f);
   }
+  if (!add.length) return;
+  const batch =
+    add.length > 1
+      ? {
+          id: uuid(),
+          files: add.length,
+          bytes: add.reduce((s, f) => s + f.size, 0),
+        }
+      : null;
+  for (const f of add) q.push({ file: f, batch });
   queues.set(peerId, q);
-  if (added > 1) toast(`${added} files queued for ${peerName(peerId)}`);
+  if (batch) {
+    const top = folderOf(add);
+    toast(
+      `${top ? `${top}/ · ${add.length} files` : `${add.length} files`} queued for ${peerName(peerId)}`,
+    );
+  }
   next(peerId);
 }
 
@@ -71,13 +95,23 @@ function next(peerId) {
   const q = queues.get(peerId);
   if (!q || !q.length) return;
   if (!state.peers.has(peerId)) {
-    q.length = 0;
+    if (state.connected) q.length = 0;
     return;
   }
   let live = 0;
   for (const t of state.transfers.values())
     if (t.dir === "send" && !isDone(t)) live++;
-  while (q.length && live++ < MAX_INFLIGHT) offer(peerId, q.shift());
+  while (q.length && live++ < MAX_INFLIGHT) {
+    const { file, batch } = q.shift();
+    offer(peerId, file, batch);
+  }
+}
+
+function purgeBatch(peerId, id) {
+  const q = queues.get(peerId);
+  if (!q) return;
+  const keep = q.filter((e) => !e.batch || e.batch.id !== id);
+  if (keep.length !== q.length) queues.set(peerId, keep);
 }
 
 function newSend(peerId, file, extra) {
@@ -89,6 +123,8 @@ function newSend(peerId, file, extra) {
     peerId,
     link: socketLink,
     name: file.name,
+    path: cleanPath(file.path || ""),
+    batch: null,
     size: file.size,
     mime: file.type,
     kind: fileKind(file.name, file.type),
@@ -142,6 +178,7 @@ function saveSend(t) {
       peerId: t.peerId,
       peerName: nameOf(t),
       name: t.name,
+      path: t.path,
       size: t.size,
       mime: t.mime,
       kind: t.kind,
@@ -165,6 +202,7 @@ function saveRecv(t) {
       peerId: t.peerId,
       peerName: nameOf(t),
       name: t.name,
+      path: t.path,
       size: t.size,
       mime: t.mime,
       kind: t.kind,
@@ -191,6 +229,8 @@ function revive(r) {
     peerName: r.peerName,
     link: socketLink,
     name: r.name,
+    path: cleanPath(r.path || ""),
+    batch: null,
     size: r.size,
     mime: r.mime || "",
     kind: r.kind || fileKind(r.name, r.mime || ""),
@@ -325,8 +365,11 @@ export async function saveClick(t) {
   emit("transfer:state", t);
 }
 
-async function offer(peerId, file) {
-  const t = newSend(peerId, file, { link: rtc.linkFor(peerId) || socketLink });
+async function offer(peerId, file, batch) {
+  const t = newSend(peerId, file, {
+    link: rtc.linkFor(peerId) || socketLink,
+    batch,
+  });
   const id = t.id;
   state.transfers.set(id, t);
   emit("transfer:add", t);
@@ -347,10 +390,12 @@ async function offer(peerId, file) {
       id,
       to: peerId,
       name: file.name,
+      path: t.path || undefined,
       size: file.size,
       mime: file.type,
       key: t.commit || undefined,
       preview: preview || undefined,
+      batch: t.batch || undefined,
     });
   } catch {
     return end(t, "failed", "couldn't reach them");
@@ -448,6 +493,7 @@ function createDrop(t, extra) {
     socketLink.send("drop-create", {
       id: t.id,
       name: t.name,
+      path: t.path || undefined,
       size: t.size,
       mime: t.mime,
       preview: t.preview || undefined,
@@ -604,41 +650,70 @@ function sameSender(a, b) {
 }
 
 export function offerGroup() {
-  const first = state.offers[0];
-  return first ? state.offers.filter((o) => sameSender(o, first)) : [];
+  const open = state.offers.filter((o) => !o.answering);
+  return open.length ? open.filter((o) => sameSender(o, open[0])) : [];
+}
+
+function decided(d) {
+  if (!d.batch) return null;
+  const b = batches.get(d.batch.id);
+  if (!b || b.peerId !== (d.from ? d.from.id : "")) return null;
+  if (performance.now() - b.at > BATCH_TTL) {
+    batches.delete(d.batch.id);
+    return null;
+  }
+  b.at = performance.now();
+  return b;
+}
+
+function decide(d, accept, dir) {
+  if (d.batch)
+    batches.set(d.batch.id, {
+      peerId: d.from ? d.from.id : "",
+      accept,
+      dir,
+      at: performance.now(),
+    });
+}
+
+function decline(d) {
+  forgetSecret(d.id);
+  try {
+    d.link.send(
+      d.drop ? "drop-cancel" : "transfer-answer",
+      d.drop ? { id: d.id } : { id: d.id, accept: false },
+    );
+  } catch {}
 }
 
 export async function answerOffer(accept) {
-  const group = offerGroup().filter((o) => !o.answering);
+  const group = offerGroup();
   if (!group.length) return;
   if (!accept) {
     for (const d of group) {
       state.offers.splice(state.offers.indexOf(d), 1);
-      forgetSecret(d.id);
-      try {
-        d.link.send(
-          d.drop ? "drop-cancel" : "transfer-answer",
-          d.drop ? { id: d.id } : { id: d.id, accept: false },
-        );
-      } catch {}
+      decide(d, false);
+      decline(d);
     }
     emit("offers");
     return;
   }
   for (const d of group) d.answering = true;
   let dir;
-  if (group.length > 1 && typeof showDirectoryPicker === "function") {
+  const wantsDir = group.length > 1 || group.some((o) => o.path || o.batch);
+  if (wantsDir && typeof showDirectoryPicker === "function") {
     try {
       dir = await showDirectoryPicker({ mode: "readwrite" });
     } catch {
       dir = null;
     }
   }
+  for (const d of group) decide(d, true, dir);
   for (const d of group) if (state.offers.includes(d)) await acceptOne(d, dir);
 }
 
 async function acceptOne(d, dir) {
-  const sink = await openSink(d.id, d.name, d.size, d.mime || "", dir);
+  const sink = await openSink(d.id, d.name, d.size, d.mime || "", dir, d.path);
   if (!state.offers.includes(d)) {
     sink.abort();
     return;
@@ -686,6 +761,8 @@ async function acceptOne(d, dir) {
     peerId: d.from ? d.from.id : "",
     link: d.link,
     name: d.name,
+    path: d.path || "",
+    batch: d.batch || null,
     size: d.size,
     mime: d.mime || "",
     kind: d.kind,
@@ -746,13 +823,25 @@ export function cancel(t, note = "canceled") {
 function doneToast(t) {
   if (t.drop === "link") return `Link ready for ${t.name}`;
   if (t.drop && t.dir === "send")
-    return `Left ${t.name} for ${t.peerName} · they have ${ttlText(t.ttl)}`;
+    return `Left ${labelOf(t)} for ${t.peerName} · they have ${ttlText(t.ttl)}`;
+  if (t.batch) {
+    const n = (batchDone.get(t.batch.id) || 0) + 1;
+    batchDone.set(t.batch.id, n);
+    if (n < t.batch.files) return "";
+    batchDone.delete(t.batch.id);
+    const what = t.path
+      ? `${t.path.split("/")[0]}/ · ${n} files`
+      : `${n} files`;
+    return t.dir === "send"
+      ? `Sent ${what} to ${peerName(t.peerId)}`
+      : `Received ${what}`;
+  }
   return t.dir === "send"
-    ? `Sent ${t.name} to ${peerName(t.peerId)}`
-    : `Received ${t.name}`;
+    ? `Sent ${labelOf(t)} to ${peerName(t.peerId)}`
+    : `Received ${labelOf(t)}`;
 }
 
-function end(t, st, note = "") {
+function end(t, st, note = "", silent = false) {
   const quiet = t.state === "missed";
   if (t.state === "active" && t.hist.length) record(t);
   t.state = st;
@@ -761,10 +850,11 @@ function end(t, st, note = "") {
   forgetSecret(t.id);
   forget(t);
   if (st === "done") {
-    toast(doneToast(t), "ok");
+    const msg = doneToast(t);
+    if (msg) toast(msg, "ok");
   } else if (note && !quiet) {
     if (t.sink) t.sink.abort();
-    toast(`${t.name}: ${note}`, "bad");
+    if (!silent) toast(`${labelOf(t)}: ${note}`, "bad");
   }
   emit("transfer:state", t);
   setTimeout(
@@ -792,7 +882,9 @@ function arm(t) {
 }
 
 function pause(t) {
-  if (t.state !== "active" || (t.drop && t.dir === "send")) return false;
+  if (t.drop && t.dir === "send") return false;
+  const offered = t.state === "offered" && t.dir === "send" && !!t.file;
+  if (t.state !== "active" && !offered) return false;
   if (t.hist.length) record(t);
   t.state = "paused";
   t.gen++;
@@ -831,7 +923,6 @@ export function pauseAll() {
       end(t, "failed", "connection lost");
   }
   state.offers.length = 0;
-  queues.clear();
   emit("offers");
   return paused;
 }
@@ -859,15 +950,20 @@ function retryPaused() {
         id: t.id,
         to: t.peerId,
         name: t.name,
+        path: t.path || undefined,
         size: t.size,
         mime: t.mime,
         key: t.commit || undefined,
         offset: hint,
+        batch: t.batch || undefined,
       });
     } catch {}
   }
 }
-on("peers", retryPaused);
+on("peers", () => {
+  retryPaused();
+  for (const peerId of [...queues.keys()]) next(peerId);
+});
 
 function resumable(t, d) {
   return (
@@ -876,6 +972,7 @@ function resumable(t, d) {
     !!d.from &&
     t.peerId === d.from.id &&
     t.name === d.name &&
+    (t.path || "") === (d.path || "") &&
     t.size === d.size
   );
 }
@@ -946,9 +1043,20 @@ function normalize(d, link) {
       .split(/[\\/]/)
       .pop()
       .slice(0, 255) || "file";
+  d.path = cleanPath(d.path);
   d.size = Number(d.size);
   d.kind = fileKind(d.name, d.mime || "");
   if (!validPreview(d.preview)) delete d.preview;
+  const b = d.batch;
+  if (
+    !b ||
+    typeof b.id !== "string" ||
+    b.id.length > 64 ||
+    !(Number(b.files) > 0) ||
+    !(Number(b.bytes) > 0)
+  )
+    delete d.batch;
+  else d.batch = { id: b.id, files: Number(b.files), bytes: Number(b.bytes) };
   return d.size > 0 && isFinite(d.size);
 }
 
@@ -961,6 +1069,14 @@ export const handlers = {
       return;
     }
     if (state.offers.some((o) => o.id === d.id)) return;
+    const b = decided(d);
+    if (b) {
+      if (!b.accept) return decline(d);
+      d.answering = true;
+      state.offers.push(d);
+      acceptOne(d, b.dir);
+      return;
+    }
     state.offers.push(d);
     emit("offers");
   },
@@ -973,7 +1089,14 @@ export const handlers = {
       (t.state !== "offered" && t.state !== "paused")
     )
       return;
-    if (!d.accept) return end(t, "declined", `${peerName(t.peerId)} declined`);
+    if (!d.accept) {
+      const note = `${peerName(t.peerId)} declined`;
+      if (!t.batch) return end(t, "declined", note);
+      const silent = batchDone.get(`declined:${t.batch.id}`) === true;
+      batchDone.set(`declined:${t.batch.id}`, true);
+      purgeBatch(t.peerId, t.batch.id);
+      return end(t, "declined", note, silent);
+    }
     clearTimeout(t.timer);
     if (t.pub && d.key && !t.key) {
       try {
@@ -1056,7 +1179,7 @@ export const handlers = {
     const o = dropOffer(d.id, link);
     if (o) {
       if (d.reason !== "left-for-later")
-        toast(`${o.from ? o.from.name : "They"} withdrew ${o.name}`);
+        toast(`${o.from ? o.from.name : "They"} withdrew ${labelOf(o)}`);
       return;
     }
     const t = mine(d, link);

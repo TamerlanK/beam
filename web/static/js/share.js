@@ -1,5 +1,5 @@
 import { state, emit, on, toast } from "./state.js";
-import { $ } from "./util.js";
+import { $, folderOf, labelOf } from "./util.js";
 import { queueFiles, leaveLink } from "./transfers.js";
 import { fits } from "./drops.js";
 
@@ -49,12 +49,15 @@ function setShared(v) {
   bar.hidden = !v;
   if (!v) return;
   const n = v.files.length;
+  const top = n > 1 ? folderOf(v.files) : "";
   $("shareWhat").textContent =
     n === 0
       ? "a note"
-      : n === 1
-        ? v.files[0].name
-        : `${v.files[0].name} and ${n - 1} more`;
+      : top
+        ? `${top}/ · ${n} files`
+        : n === 1
+          ? labelOf(v.files[0])
+          : `${v.files[0].name} and ${n - 1} more`;
   $("shareVerb").textContent = state.peers.size
     ? "Tap a device to send"
     : "Waiting for a device to send";

@@ -144,6 +144,31 @@ never sees a private key.
 at most 40KB (first page for PDFs), shown in the receiver's accept prompt.
 Anything else is rejected with `bad-message`.
 
+`path` is optional: the folder the file belongs in, relative to wherever
+the receiver chooses to save, as forward-slash segments
+(`"photos/2024"`). A sender sets it when the file was picked as part of a
+folder, with the folder's own name as the first segment. At most 1KB;
+backslashes count as slashes; every segment is sanitized like `name` and
+must not come out empty, `.` or `..`, else `bad-message`. The receiver
+recreates the folders under its save location and never lets a path
+escape it. Browsers without a directory picker save the file flat.
+
+`batch` is optional and groups the files of one send gesture (a folder or
+a multi-select) so the receiver can answer them with a single decision:
+
+```json
+"batch": {"id":"c0ffee12-…","files":42,"bytes":1234567890}
+```
+
+`id` is a UUID, `files` and `bytes` the totals over the whole batch. The
+server checks the shape (well-formed id, both counts positive) and forwards
+it opaquely; the totals are the sender's claim, like `size`. A receiver
+that accepted or declined an offer carrying a batch applies the same answer
+to later offers with the same batch id from the same peer, without
+prompting, for 10 minutes after its last such answer. A sender that sees
+one offer of a batch declined withdraws the rest of the batch instead of
+offering it.
+
 `offset` is optional and used to resume: the plaintext byte position the
 sender proposes to continue from. It must be a multiple of the chunk size
 (64KB) and below `size`, else `bad-message`. It is only a hint; the
@@ -284,8 +309,9 @@ public key as `pub` on its `/ws` URL; peers see it on the peer object.
 }}
 ```
 
-Same validation as an offer, plus: `0 < size ≤ maxBytes`, at most 16
-drops per IP, and the global `-drop-budget`. `key` is the creator's
+Same validation as an offer (`path` included; there is no `batch`), plus:
+`0 < size ≤ maxBytes`, at most 16 drops per IP, and the global
+`-drop-budget`. `key` is the creator's
 ephemeral public key for a device drop (the addressee derives the AES key
 from it and its own private key); a link drop carries no key at all.
 Errors use code `bad-drop`. Reply:
@@ -322,6 +348,7 @@ The drop is held; the creator may leave. The TTL restarts here.
 Sent to the addressee when the upload completes, again every time the
 addressee connects while the drop is held, and after a failed pickup.
 `anyone: true` marks a link drop (sent only in reply to `drop-claim`).
+`path` is carried through from `drop-create` when present.
 
 ### `drop-claim` (C→S)
 

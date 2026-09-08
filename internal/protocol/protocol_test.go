@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -23,6 +24,8 @@ func TestRoundTrip(t *testing.T) {
 		{TypeRoomJoin, RoomJoin{Code: "WXYZ"}},
 		{TypeTransferOffer, TransferOffer{ID: uuid.NewString(), To: "p2", Name: "photo.jpg", Size: 12345, Mime: "image/jpeg"}},
 		{TypeTransferOffer, TransferOffer{ID: uuid.NewString(), From: peer, Name: "a.bin", Size: 1}},
+		{TypeTransferOffer, TransferOffer{ID: uuid.NewString(), To: "p2", Name: "a.jpg", Path: "photos/2024", Size: 1, Batch: &Batch{ID: uuid.NewString(), Files: 2, Bytes: 3}}},
+		{TypeDropWaiting, DropWaiting{ID: uuid.NewString(), From: peer, Name: "a.jpg", Path: "photos", Size: 1, ExpiresIn: 5}},
 		{TypeTransferAnswer, TransferAnswer{ID: uuid.NewString(), Accept: true}},
 		{TypeTransferCancel, TransferCancel{ID: uuid.NewString(), Reason: "changed my mind"}},
 		{TypeTransferComplete, TransferComplete{ID: uuid.NewString(), Bytes: 987654321}},
@@ -76,6 +79,48 @@ func TestDecodeRejects(t *testing.T) {
 				t.Fatalf("Decode(%q) err = %v, want %v", tc.raw, err, tc.err)
 			}
 		})
+	}
+}
+
+func TestSplitPath(t *testing.T) {
+	good := map[string][]string{
+		"":                 nil,
+		"photos":           {"photos"},
+		"photos/2024":      {"photos", "2024"},
+		`photos\2024\sub`:  {"photos", "2024", "sub"},
+		"a b/c.d/..e":      {"a b", "c.d", "..e"},
+		"..." + "/" + "x.": {"...", "x."},
+	}
+	for in, want := range good {
+		got, ok := SplitPath(in)
+		if !ok || !reflect.DeepEqual(got, want) {
+			t.Errorf("SplitPath(%q) = %v, %v; want %v, true", in, got, ok, want)
+		}
+	}
+	bad := []string{"../x", "a/../b", "a/./b", "/abs", "a//b", "a/", ".", "..", strings.Repeat("a", MaxPathBytes+1), "a/" + strings.Repeat("b", MaxFilenameBytes+1)}
+	for _, in := range bad {
+		if _, ok := SplitPath(in); ok {
+			t.Errorf("SplitPath(%q) accepted", in)
+		}
+	}
+}
+
+func TestValidBatch(t *testing.T) {
+	id := uuid.NewString()
+	if !ValidBatch(nil) || !ValidBatch(&Batch{ID: id, Files: 1, Bytes: 1}) {
+		t.Fatal("valid batch rejected")
+	}
+	for _, b := range []*Batch{
+		{ID: "x", Files: 1, Bytes: 1},
+		{ID: uuid.Nil.String(), Files: 1, Bytes: 1},
+		{ID: id, Files: 0, Bytes: 1},
+		{ID: id, Files: 1, Bytes: 0},
+		{ID: id, Files: MaxBatchFiles + 1, Bytes: 1},
+		{ID: id, Files: 1, Bytes: -1},
+	} {
+		if ValidBatch(b) {
+			t.Errorf("ValidBatch(%+v) accepted", *b)
+		}
 	}
 }
 

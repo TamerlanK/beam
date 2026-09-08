@@ -281,6 +281,17 @@ func TestOfferValidation(t *testing.T) {
 		{"cross-room target", protocol.TransferOffer{ID: uuid.NewString(), To: "s", Name: "x", Size: 1}},
 		{"unknown target", protocol.TransferOffer{ID: uuid.NewString(), To: "ghost", Name: "x", Size: 1}},
 		{"empty filename", protocol.TransferOffer{ID: uuid.NewString(), To: "b", Name: "..", Size: 1}},
+		{"padded dotdot filename", protocol.TransferOffer{ID: uuid.NewString(), To: "b", Name: " .. ", Size: 1}},
+		{"path traversal", protocol.TransferOffer{ID: uuid.NewString(), To: "b", Name: "x", Path: "../x", Size: 1}},
+		{"path with dot", protocol.TransferOffer{ID: uuid.NewString(), To: "b", Name: "x", Path: "a/./b", Size: 1}},
+		{"path with padded dotdot", protocol.TransferOffer{ID: uuid.NewString(), To: "b", Name: "x", Path: "a/ .. /b", Size: 1}},
+		{"absolute path", protocol.TransferOffer{ID: uuid.NewString(), To: "b", Name: "x", Path: "/etc", Size: 1}},
+		{"empty path segment", protocol.TransferOffer{ID: uuid.NewString(), To: "b", Name: "x", Path: "a//b", Size: 1}},
+		{"control chars in path", protocol.TransferOffer{ID: uuid.NewString(), To: "b", Name: "x", Path: "a/\x01/b", Size: 1}},
+		{"path too long", protocol.TransferOffer{ID: uuid.NewString(), To: "b", Name: "x", Path: strings.Repeat("a/", protocol.MaxPathBytes), Size: 1}},
+		{"batch with bad id", protocol.TransferOffer{ID: uuid.NewString(), To: "b", Name: "x", Size: 1, Batch: &protocol.Batch{ID: "nope", Files: 2, Bytes: 2}}},
+		{"batch without files", protocol.TransferOffer{ID: uuid.NewString(), To: "b", Name: "x", Size: 1, Batch: &protocol.Batch{ID: uuid.NewString(), Files: 0, Bytes: 2}}},
+		{"batch without bytes", protocol.TransferOffer{ID: uuid.NewString(), To: "b", Name: "x", Size: 1, Batch: &protocol.Batch{ID: uuid.NewString(), Files: 2, Bytes: 0}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -531,6 +542,30 @@ func TestEncryptedOfferNegotiation(t *testing.T) {
 	sendText(h, a, protocol.TypeTransferKey, protocol.TransferKey{ID: id2.String(), Key: "pubA"})
 	if lastOfType(drain(t, a), protocol.TypeError) == nil {
 		t.Fatal("transfer-key on a plaintext transfer accepted")
+	}
+}
+
+func TestOfferForwardsPathAndBatch(t *testing.T) {
+	h := testHub()
+	a := addTestClient(h, "a", "1.1.1.1")
+	b := addTestClient(h, "b", "1.1.1.1")
+	drain(t, a)
+	drain(t, b)
+
+	batch := &protocol.Batch{ID: uuid.NewString(), Files: 3, Bytes: 30}
+	sendText(h, a, protocol.TypeTransferOffer, protocol.TransferOffer{
+		ID: uuid.NewString(), To: "b", Name: "x.jpg", Path: `photos\ 2024 `, Size: 10, Batch: batch,
+	})
+	if errs := lastOfType(drain(t, a), protocol.TypeError); errs != nil {
+		t.Fatalf("valid folder offer rejected: %s", errs.Data)
+	}
+	var got protocol.TransferOffer
+	must(t, json.Unmarshal(lastOfType(drain(t, b), protocol.TypeTransferOffer).Data, &got))
+	if got.Path != "photos/2024" {
+		t.Fatalf("path forwarded as %q, want photos/2024", got.Path)
+	}
+	if got.Batch == nil || *got.Batch != *batch {
+		t.Fatalf("batch forwarded as %+v, want %+v", got.Batch, batch)
 	}
 }
 

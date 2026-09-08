@@ -20,6 +20,7 @@ go run ./cmd/beam        # then open http://localhost:8080 on two devices
 - **Zero setup** — open the page on two devices; same-network devices are grouped automatically (by public IP) and appear as avatar cards on a radar
 - **Cross-network rooms** — a 4-char code (unambiguous alphabet, 10-minute idle TTL) or QR scan joins a device from anywhere into your room
 - **Streamed transfers** — accept/decline prompt, then 64KB chunks relayed with live progress (%, MB/s, ETA) on both sides; multi-file queues per peer, concurrent transfers across pairs
+- **Folders, as folders** — pick a folder, drop one on a device, or `beam send ./photos` from a shell, and it arrives with its tree intact: every file is its own encrypted, resumable transfer, one Accept covers the whole folder, and a Chromium receiver writes the structure straight into the directory it picks (Firefox and Safari save each file as a download)
 - **Direct when possible** — same-network and STUN-reachable devices negotiate a WebRTC data channel and stream peer-to-peer at LAN speed; anything else falls back to the relay automatically
 - **End-to-end encrypted** — every transfer negotiates an ephemeral ECDH key and seals chunks with AES-256-GCM in the browser; both sides show a matching 4-character verification code, the sender commits to its key before revealing it so a relay cannot grind for a matching code, and the relay only ever sees ciphertext
 - **Streams to disk, everywhere** — the receiver writes chunks into a part file in the browser's origin-private file system (Chrome, Firefox, Safari), so multi-GB transfers never touch RAM; on Chromium the finished file is then moved into the location you picked, elsewhere it becomes a download
@@ -41,6 +42,8 @@ go run ./cmd/beam        # then open http://localhost:8080 on two devices
 
 **Another network.** Click **Connect a device** on one side. It shows a 4-character code and a QR that encodes the join link. On the other device, type the code or scan the QR; that device joins your room and appears on your radar as if it were local. Codes expire after 10 minutes idle and joins are rate-limited per IP.
 
+**Folders.** The folder button on a device card opens a folder picker; dragging a folder from your file manager onto a device (or anywhere on the page, to stage it) works too. The receiver sees one prompt for the whole folder, with its name, file count and total size, and accepts once. On Chromium the receiver picks a directory and the folder is recreated inside it, existing names getting a `(1)` suffix instead of being overwritten; Firefox and Safari save every file as a separate download. Each file is still its own transfer underneath, so progress, verification codes and resume behave exactly as for single files, and a folder that one side declines is withdrawn as a whole.
+
 **Notes.** The small speech-bubble button on a device card sends a text snippet (up to 8KB): a link, an address, a one-time code. It appears on the other screen immediately with a Copy button.
 
 **Leave it for later.** If the other device is offline or doesn't answer, choose **Leave for later** in the transfer row. The file is encrypted to that device's key and parked on the server, in memory, for 10 minutes; it is delivered as soon as the device shows up, even if you have closed your tab. **Get a link** does the same for anyone: the decryption key lives in the link's `#fragment`, which never reaches the server.
@@ -58,6 +61,7 @@ The same binary is also a client, for the machine that has no browser: a headles
 ```sh
 beam ls                                      # who is in the room
 beam send build.tar.gz -to "Purple Falcon"   # offer a file; the receiver accepts in the browser
+beam send ./photos -to purple                # a whole folder, tree intact, one accept on the other side
 beam send -text "https://…" -to purple       # a note; names and ids match case-insensitively, prefixes work
 beam recv -dir ~/Downloads                   # wait for offers, ask y/N, save
 beam recv -yes -once -dir out                # headless: accept everything, exit after the first transfer
@@ -80,7 +84,7 @@ Set `BEAM_SERVER` (or `-server`) to the server's URL; the default is `http://loc
 | `-wait` | all | How long to wait for a device to appear or come back (default `5m`, `0` = forever) |
 | `-name` | all | Device name for this run |
 
-A received file gets its name (`name (1)` if that exists) only once every byte is in and verified; until then it is `.beam-<id>.part` in the same directory. `recv` prints each saved path on stdout and everything else on stderr, and exits non-zero if a transfer failed; Ctrl-C withdraws open transfers on either side. Everything goes through the relay (no WebRTC), and a transfer resumes after a dropped link or a peer that reconnects for as long as the process runs.
+A received file gets its name (`name (1)` if that exists) only once every byte is in and verified; until then it is `.beam-<id>.part` in the top-level directory. Files sent as part of a folder land in that folder under `-dir`, created as needed; the path is sanitized per segment, so a peer can never write outside `-dir`. Empty files and anything that is not a regular file are skipped when sending a folder. `recv` prints each saved path on stdout and everything else on stderr, and exits non-zero if a transfer failed; Ctrl-C withdraws open transfers on either side. Everything goes through the relay (no WebRTC), and a transfer resumes after a dropped link or a peer that reconnects for as long as the process runs.
 
 ## Quickstart
 
@@ -137,6 +141,8 @@ beam.example.com {
 | Send and receive, E2E encryption, resume | ✓ | ✓ | ✓ |
 | Stream to disk while receiving (OPFS part file) | ✓ | ✓ | ✓ |
 | Save straight into a chosen file/folder | ✓ | download | download |
+| Receive a folder as a folder | ✓ | flat downloads | flat downloads |
+| Send a folder (picker or drag-and-drop) | ✓ | ✓ | ✓ |
 | Resume a *send* after a reload (needs a file handle) | ✓ | | |
 | WebRTC direct path | ✓ | ✓ | ✓ |
 | Install as PWA / share target | ✓ | Android only | home screen, no share target |
@@ -167,7 +173,7 @@ flowchart LR
 - **Credit-based flow control.** A sender may have at most 16 unacked chunks in flight; the server grants a credit only after the receiver's socket write *completes*, so a slow receiver throttles its sender end-to-end instead of growing server queues. Details in [docs/streaming.md](docs/streaming.md).
 - **Backpressure fails clean.** Bounded send queues (64), 10s write deadlines, and non-blocking hub sends mean a stuck receiver fails its own transfer — it cannot consume server memory or stall anyone else.
 - **Zero goroutine leaks, proven.** Every client costs exactly two goroutines that provably terminate; a `goleak` test churns 50 connect/transfer/disconnect cycles and verifies none survive.
-- **Hostile-input hardening.** Every message is schema-validated with strict caps (filename ≤255B sanitized, size ≤50GB, snippet ≤8KB, 1MB read limit); the transfer state machine rejects illegal transitions (wrong-client answers, double accepts, cancel-after-complete) with protocol errors, never panics; room-code joins are token-bucket rate-limited per IP; the envelope parser is fuzz-tested.
+- **Hostile-input hardening.** Every message is schema-validated with strict caps (filename ≤255B sanitized, folder path ≤1KB with every segment sanitized and `..` rejected, size ≤50GB, snippet ≤8KB, 1MB read limit); the transfer state machine rejects illegal transitions (wrong-client answers, double accepts, cancel-after-complete) with protocol errors, never panics; room-code joins are token-bucket rate-limited per IP; the envelope parser is fuzz-tested.
 - **Observable.** Structured `slog` logs for every transfer lifecycle event (readable text by default, `-log-format json` for machines); optional pprof; a load harness (`make loadtest`) reporting throughput, p50/p99 relay latency, and peak RSS.
 
 ## Design decisions & tradeoffs

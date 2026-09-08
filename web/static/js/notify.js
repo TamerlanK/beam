@@ -1,5 +1,5 @@
 import { state, on } from "./state.js";
-import { $ } from "./util.js";
+import { $, labelOf } from "./util.js";
 
 const baseTitle = document.title;
 const ICON = document.querySelector("link[rel=icon]").href;
@@ -41,12 +41,15 @@ export function initNotify() {
     }
     if (!document.hidden) return;
     document.title = "Incoming file · beam";
-    const d = state.offers[0],
-      n = state.offers.length;
+    const d = state.offers[0];
+    const n =
+      d.batch && d.batch.files > state.offers.length
+        ? d.batch.files
+        : state.offers.length;
     show(
       "offers",
       `${d.from ? d.from.name : "Someone"} ${d.drop ? "left you" : "wants to send you"} ${n > 1 ? `${n} files` : "a file"}`,
-      state.offers.map((o) => o.name).join(", "),
+      state.offers.map(labelOf).join(", "),
     );
   });
   on("snippet", (d) => {

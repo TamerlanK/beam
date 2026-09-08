@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -231,6 +232,143 @@ func TestResume(t *testing.T) {
 	}
 	if starts < 2 {
 		t.Errorf("transfer started %d times, want a re-offer after the drop", starts)
+	}
+}
+
+func TestSendFolder(t *testing.T) {
+	addr := startServer(t)
+	src, dst := t.TempDir(), t.TempDir()
+	root := filepath.Join(src, "photos")
+	deep := filepath.Join(root, "2024", "sub")
+	if err := os.MkdirAll(deep, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string][]byte{
+		"photos/a.jpg":          writeFile(t, root, "a.jpg", 5),
+		"photos/2024/b.bin":     writeFile(t, filepath.Join(root, "2024"), "b.bin", protocol.ChunkSize+3),
+		"photos/2024/sub/c.txt": writeFile(t, deep, "c.txt", 77),
+	}
+	if err := os.WriteFile(filepath.Join(root, "empty.txt"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	files, skipped, err := Expand(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if skipped != 1 || len(files) != len(want) {
+		t.Fatalf("Expand: %d files, %d skipped; want %d and 1", len(files), skipped, len(want))
+	}
+	for _, f := range files {
+		if _, ok := want[f.Label()]; !ok {
+			t.Fatalf("Expand produced unexpected label %q", f.Label())
+		}
+	}
+
+	rc := dial(t, addr, "receiver")
+	sc := dial(t, addr, "sender")
+	results := make(chan got, 8)
+	runReceiver(rc, dst, results, nil)
+	runSender(t, sc, rc.Self().ID, files)
+
+	for range files {
+		var g got
+		select {
+		case g = <-results:
+		case <-time.After(30 * time.Second):
+			t.Fatal("timeout waiting for the receiver")
+		}
+		if g.err != nil {
+			t.Fatalf("%s: %v", g.name, g.err)
+		}
+		if wantPath := filepath.Join(dst, filepath.FromSlash(g.name)); g.path != wantPath {
+			t.Errorf("%s saved at %q, want %q", g.name, g.path, wantPath)
+		}
+		data, err := os.ReadFile(g.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(data, want[g.name]) {
+			t.Errorf("%s: content differs", g.name)
+		}
+	}
+	if parts, _ := filepath.Glob(filepath.Join(dst, ".beam-*.part")); len(parts) > 0 {
+		t.Errorf("part files left behind: %v", parts)
+	}
+}
+
+func TestBatchDeclinedOnce(t *testing.T) {
+	addr := startServer(t)
+	src, dst := t.TempDir(), t.TempDir()
+	var files []File
+	for _, n := range []string{"a.bin", "b.bin", "c.bin"} {
+		writeFile(t, src, n, 10)
+		f, err := Stat(filepath.Join(src, n))
+		if err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, f)
+	}
+	rc := dial(t, addr, "receiver")
+	sc := dial(t, addr, "sender")
+
+	r := NewReceiver(rc, dst)
+	var asked atomic.Int32
+	go func() {
+		for ev := range rc.Events {
+			r.Handle(ev)
+			for _, o := range r.Pending() {
+				asked.Add(1)
+				_ = r.Answer(o, false)
+			}
+		}
+	}()
+
+	s := NewSender(sc, rc.Self().ID, files)
+	declined := 0
+	s.OnDone = func(_ File, err error) {
+		if err != nil && err.Error() == "declined" {
+			declined++
+		}
+	}
+	s.Start()
+	deadline := time.After(15 * time.Second)
+	for !s.Finished() {
+		select {
+		case ev, ok := <-sc.Events:
+			if !ok {
+				t.Fatal("sender client stopped")
+			}
+			s.Handle(ev)
+		case <-deadline:
+			t.Fatal("sender never finished after a decline")
+		}
+	}
+	if declined != len(files) {
+		t.Errorf("%d transfers declined, want %d", declined, len(files))
+	}
+	if n := asked.Load(); n != 1 {
+		t.Errorf("receiver was asked %d times, want 1: a declined batch must be declined silently", n)
+	}
+}
+
+func TestSafePath(t *testing.T) {
+	cases := map[string]string{
+		"":                "",
+		"photos":          "photos",
+		"photos/2024":     "photos/2024",
+		`photos\2024`:     "photos/2024",
+		"../x":            "",
+		"a/../b":          "",
+		"/abs":            "",
+		"a/ .. /b":        "a/file/b",
+		"a/b\x00c/d":      "a/b_c/d",
+		"a/" + "b/":       "",
+		"a/" + "./" + "b": "",
+	}
+	for in, want := range cases {
+		if got := safePath(in); got != want {
+			t.Errorf("safePath(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
 

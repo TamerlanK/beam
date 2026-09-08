@@ -23,6 +23,33 @@ export function uuid() {
   return bytesToUUID(b);
 }
 
+export function cleanPath(p) {
+  if (typeof p !== "string" || !p || p.length > 1024) return "";
+  const segs = p.split(/[\\/]/);
+  for (const s of segs)
+    if (
+      !s ||
+      s === "." ||
+      s === ".." ||
+      s.length > 255 ||
+      /[\x00-\x1f\x7f]/.test(s)
+    )
+      return "";
+  return segs.join("/");
+}
+
+export function folderOf(list) {
+  let top = "";
+  for (const x of list) {
+    const first = (x.path || "").split("/")[0];
+    if (!first || (top && first !== top)) return "";
+    top = first;
+  }
+  return top;
+}
+
+export const labelOf = (t) => (t.path ? `${t.path}/${t.name}` : t.name);
+
 export function thumb(t) {
   return t.preview ? el("img", { src: t.preview, alt: "" }) : icon(t.kind);
 }

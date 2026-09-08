@@ -18,6 +18,7 @@ type Drop struct {
 	ToID    string
 	IP      string
 	Name    string
+	Path    string
 	Size    int64
 	Wire    int64
 	Mime    string
@@ -58,6 +59,11 @@ func (h *Hub) handleDropCreate(c *Client, m protocol.DropCreate) {
 	name := sanitizeFilename(m.Name)
 	if name == "" {
 		h.sendErr(c, protocol.ErrCodeBadMessage, "bad filename")
+		return
+	}
+	dir, ok := sanitizePath(m.Path)
+	if !ok {
+		h.sendErr(c, protocol.ErrCodeBadMessage, "path must be relative folder segments of at most 1KB")
 		return
 	}
 	if m.Size <= 0 || m.Size > h.limits.MaxDropBytes {
@@ -101,7 +107,7 @@ func (h *Hub) handleDropCreate(c *Client, m protocol.DropCreate) {
 	now := time.Now()
 	d := &Drop{
 		ID: id, FromID: c.ID, From: c.Peer(), ToID: m.To, IP: c.IP,
-		Name: name, Size: m.Size, Wire: wire, Mime: mime, Key: m.Key, Preview: m.Preview,
+		Name: name, Path: dir, Size: m.Size, Wire: wire, Mime: mime, Key: m.Key, Preview: m.Preview,
 		frames:  make([][]byte, 0, (m.Size+protocol.ChunkSize-1)/protocol.ChunkSize),
 		Expires: now.Add(h.limits.DropTTL),
 	}
@@ -152,7 +158,7 @@ func (h *Hub) storeFrame(c *Client, d *Drop, m inbound) {
 func (h *Hub) waiting(d *Drop) protocol.DropWaiting {
 	from := d.From
 	return protocol.DropWaiting{
-		ID: d.ID.String(), From: &from, Name: d.Name, Size: d.Size, Mime: d.Mime, Key: d.Key, Preview: d.Preview,
+		ID: d.ID.String(), From: &from, Name: d.Name, Path: d.Path, Size: d.Size, Mime: d.Mime, Key: d.Key, Preview: d.Preview,
 		ExpiresIn: int(time.Until(d.Expires).Seconds()), Anyone: d.ToID == "",
 	}
 }

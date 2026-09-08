@@ -1,5 +1,14 @@
 import { state, on, emit, isDone, peerName } from "./state.js";
-import { $, el, icon, thumb, fmtSize, fmtRate, fmtLeft } from "./util.js";
+import {
+  $,
+  el,
+  icon,
+  thumb,
+  fmtSize,
+  fmtRate,
+  fmtLeft,
+  labelOf,
+} from "./util.js";
 import {
   rateOf,
   etaOf,
@@ -51,8 +60,8 @@ function setCollapsed(v) {
 function addRow(t) {
   const li = $("rowT").content.firstElementChild.cloneNode(true);
   li.querySelector(".tr-icon").append(thumb(t));
-  li.querySelector(".tr-name").textContent = t.name;
-  li.querySelector(".tr-name").title = t.name;
+  li.querySelector(".tr-name").textContent = labelOf(t);
+  li.querySelector(".tr-name").title = labelOf(t);
   rows.set(t.id, li);
   list.prepend(li);
   if (panel.hidden) {

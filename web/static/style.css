@@ -840,7 +840,8 @@ body::before {
   animation: shake 400ms ease;
 }
 
-.note-btn {
+.note-btn,
+.folder-btn {
   position: absolute;
   top: 4px;
   right: 8px;
@@ -861,16 +862,27 @@ body::before {
     color var(--fast),
     border-color var(--fast);
 }
-.note-btn .i {
+.folder-btn {
+  right: auto;
+  left: 8px;
+}
+.folder-btn[hidden] {
+  display: none;
+}
+.note-btn .i,
+.folder-btn .i {
   width: 15px;
   height: 15px;
 }
 .peer:hover .note-btn,
-.peer:focus-within .note-btn {
+.peer:focus-within .note-btn,
+.peer:hover .folder-btn,
+.peer:focus-within .folder-btn {
   opacity: 1;
   transform: scale(1);
 }
-.note-btn:hover {
+.note-btn:hover,
+.folder-btn:hover {
   color: var(--beam-text);
   border-color: var(--beam-40);
 }
@@ -927,7 +939,8 @@ body.is-dragging .drop-hint {
 body.is-dragging .peer .avatar {
   animation: breathe 1.4s ease-in-out infinite;
 }
-body.is-dragging .note-btn {
+body.is-dragging .note-btn,
+body.is-dragging .folder-btn {
   display: none;
 }
 
@@ -1377,6 +1390,12 @@ body.is-dragging .note-btn {
   font-size: 12.5px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+.offer-more {
+  padding: 4px 14px;
+  font-size: 12.5px;
+  color: var(--muted);
+  text-align: left;
 }
 .offer-timer {
   display: flex;
@@ -1849,13 +1868,18 @@ body.is-dragging .note-btn {
   .ring-fill {
     stroke-dasharray: 289;
   }
-  .note-btn {
+  .note-btn,
+  .folder-btn {
     opacity: 1;
     transform: none;
     top: 0;
     right: 2px;
     width: 28px;
     height: 28px;
+  }
+  .folder-btn {
+    right: auto;
+    left: 2px;
   }
   .self-hint {
     display: none;
@@ -1944,7 +1968,8 @@ body.is-dragging .note-btn {
 }
 
 @media (hover: none) {
-  .note-btn {
+  .note-btn,
+  .folder-btn {
     opacity: 1;
     transform: none;
   }
