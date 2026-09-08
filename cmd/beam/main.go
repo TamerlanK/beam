@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -19,17 +20,46 @@ import (
 )
 
 func main() {
-	addr := flag.String("addr", ":8080", "listen address")
-	debug := flag.Bool("debug", false, "enable pprof on /debug/pprof/")
-	logFormat := flag.String("log-format", "text", "log format: text or json")
-	contact := flag.String("contact", "", "operator contact shown on /privacy (email or URL)")
-	maxConns := flag.Int("max-conns-per-ip", 32, "max concurrent websocket connections per IP (0 = unlimited)")
-	relayBPS := flag.Int64("relay-bps", 0, "global relay budget in bytes per second (0 = unlimited)")
-	trustProxy := flag.Bool("trust-proxy", false, "trust X-Forwarded-For for room grouping (only behind a trusted proxy)")
-	dropMax := flag.Int64("drop-max", 200<<20, "max bytes per drop held for later pickup (0 = disable drops)")
-	dropBudget := flag.Int64("drop-budget", 1<<30, "max bytes of drops held in memory at once (0 = unlimited)")
-	dropTTL := flag.Duration("drop-ttl", 10*time.Minute, "how long a drop waits to be picked up")
-	flag.Parse()
+	args := os.Args[1:]
+	cmd := "serve"
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		cmd, args = args[0], args[1:]
+	}
+	switch cmd {
+	case "serve":
+		os.Exit(serve(args))
+	case "ls", "send", "recv":
+		os.Exit(runCLI(cmd, args))
+	case "help":
+		fmt.Print(usage)
+	default:
+		fmt.Fprintf(os.Stderr, "beam: unknown command %q\n\n%s", cmd, usage)
+		os.Exit(2)
+	}
+}
+
+func serve(args []string) int {
+	fs := flag.NewFlagSet("beam serve", flag.ContinueOnError)
+	fs.Usage = func() {
+		fmt.Fprint(os.Stderr, usage, "\nServer flags:\n")
+		fs.PrintDefaults()
+	}
+	addr := fs.String("addr", ":8080", "listen address")
+	debug := fs.Bool("debug", false, "enable pprof on /debug/pprof/")
+	logFormat := fs.String("log-format", "text", "log format: text or json")
+	contact := fs.String("contact", "", "operator contact shown on /privacy (email or URL)")
+	maxConns := fs.Int("max-conns-per-ip", 32, "max concurrent websocket connections per IP (0 = unlimited)")
+	relayBPS := fs.Int64("relay-bps", 0, "global relay budget in bytes per second (0 = unlimited)")
+	trustProxy := fs.Bool("trust-proxy", false, "trust X-Forwarded-For for room grouping (only behind a trusted proxy)")
+	dropMax := fs.Int64("drop-max", 200<<20, "max bytes per drop held for later pickup (0 = disable drops)")
+	dropBudget := fs.Int64("drop-budget", 1<<30, "max bytes of drops held in memory at once (0 = unlimited)")
+	dropTTL := fs.Duration("drop-ttl", 10*time.Minute, "how long a drop waits to be picked up")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
 
 	var log *slog.Logger
 	if *logFormat == "json" {
@@ -55,12 +85,13 @@ func main() {
 	})
 	if err != nil {
 		log.Error("startup failed", "err", err)
-		os.Exit(1)
+		return 1
 	}
 	if err := srv.Run(ctx); err != nil {
 		log.Error("server error", "err", err)
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }
 
 type textHandler struct {

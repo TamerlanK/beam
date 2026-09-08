@@ -1,0 +1,834 @@
+package client
+
+import (
+	"crypto/cipher"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
+	"mime"
+	"os"
+	"path/filepath"
+	"regexp"
+	"runtime"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/TamerlanK/beam/internal/protocol"
+	"github.com/google/uuid"
+)
+
+// ponytail: the hub refuses more than 32 live transfers per sender; the browser keeps 24 in flight
+const maxInflight = 24
+
+type state int
+
+const (
+	stQueued state = iota
+	stOffered
+	stActive
+	stPaused // the link or the peer went away; resumes by offset when it is back
+	stDone
+	stFailed
+)
+
+func terminal(s state) bool { return s == stDone || s == stFailed }
+
+var reasons = map[string]string{
+	"offer-timeout":         "no answer in 30 seconds",
+	"peer-disconnected":     "they disconnected",
+	"peer-left-room":        "they left the room",
+	"receiver-backpressure": "their connection stalled",
+	"sender-backpressure":   "your connection stalled",
+	"server-shutdown":       "the server shut down",
+}
+
+func reasonText(r string) string {
+	if t := reasons[r]; t != "" {
+		return t
+	}
+	return r
+}
+
+// File is something to send.
+type File struct {
+	Path string
+	Name string
+	Size int64
+	Mime string
+}
+
+// Stat describes a local file for sending, refusing what the server would.
+func Stat(path string) (File, error) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return File{}, err
+	}
+	name := filepath.Base(path)
+	switch {
+	case fi.IsDir():
+		return File{}, fmt.Errorf("%s is a directory", path)
+	case fi.Size() == 0:
+		return File{}, fmt.Errorf("%s is empty", path)
+	case fi.Size() > protocol.MaxDeclaredSize:
+		return File{}, fmt.Errorf("%s is larger than 50GB", path)
+	case len(name) > protocol.MaxFilenameBytes:
+		return File{}, fmt.Errorf("%s: name longer than 255 bytes", path)
+	}
+	m, _, _ := mime.ParseMediaType(mime.TypeByExtension(filepath.Ext(name)))
+	return File{Path: path, Name: name, Size: fi.Size(), Mime: m}, nil
+}
+
+// Sender
+
+type sendXfer struct {
+	id      uuid.UUID
+	f       File
+	file    *os.File
+	kp      keypair
+	commit  string
+	key     cipher.AEAD
+	sas     string
+	state   state
+	offset  int64
+	credits int
+	since   time.Time // when it started waiting for the peer
+	err     error
+}
+
+// Sender streams files to one peer, one transfer per file, up to
+// maxInflight at a time. Drive it from one goroutine: Start once, then
+// Handle every event until Finished. A peer that drops mid-transfer is
+// re-offered from where it stopped when it comes back.
+type Sender struct {
+	c     *Client
+	to    string
+	xfers []*sendXfer
+	byID  map[uuid.UUID]*sendXfer
+	frame []byte
+
+	// OnStart runs when the receiver accepts; sas is "" when it has no
+	// crypto and the file goes in the clear. OnPause runs when the peer or
+	// the link went away. OnDone runs once per file with nil or why it
+	// was not sent.
+	OnStart    func(f File, sas string)
+	OnPause    func(f File)
+	OnProgress func()
+	OnDone     func(f File, err error)
+}
+
+func NewSender(c *Client, to string, files []File) *Sender {
+	s := &Sender{c: c, to: to, byID: map[uuid.UUID]*sendXfer{}, frame: make([]byte, protocol.MaxFrameSize)}
+	for _, f := range files {
+		x := &sendXfer{id: uuid.New(), f: f}
+		s.xfers = append(s.xfers, x)
+		s.byID[x.id] = x
+	}
+	return s
+}
+
+// Start offers the first batch. The peer must be in the room.
+func (s *Sender) Start() { s.fill() }
+
+func (s *Sender) fill() {
+	live := 0
+	for _, x := range s.xfers {
+		if x.state == stOffered || x.state == stActive || x.state == stPaused {
+			live++
+		}
+	}
+	for _, x := range s.xfers {
+		if live >= maxInflight {
+			return
+		}
+		if x.state == stQueued {
+			s.offer(x)
+			live++
+		}
+	}
+}
+
+func (s *Sender) offer(x *sendXfer) {
+	if x.file == nil {
+		f, err := os.Open(x.f.Path)
+		if err != nil {
+			s.finish(x, err)
+			return
+		}
+		x.file = f
+	}
+	if x.kp.pub == "" {
+		kp, err := newKeypair()
+		if err == nil {
+			x.commit, err = commitment(kp.pub)
+		}
+		if err != nil {
+			s.finish(x, err)
+			return
+		}
+		x.kp = kp
+	}
+	var hint int64
+	if x.offset > 0 {
+		hint = min(x.offset, (x.f.Size-1)/protocol.ChunkSize*protocol.ChunkSize)
+	}
+	x.state, x.since, x.credits = stOffered, time.Now(), 0
+	err := s.c.Send(protocol.TypeTransferOffer, protocol.TransferOffer{
+		ID: x.id.String(), To: s.to, Name: x.f.Name, Size: x.f.Size, Mime: x.f.Mime, Key: x.commit, Offset: hint,
+	})
+	if err != nil {
+		x.state = stPaused // the reconnect re-offers
+	}
+}
+
+func (s *Sender) reoffer() {
+	if _, ok := s.c.Peer(s.to); !ok {
+		return
+	}
+	for _, x := range s.xfers {
+		if x.state == stPaused {
+			s.offer(x)
+		}
+	}
+}
+
+func (s *Sender) parse(data json.RawMessage, v any, id *string) *sendXfer {
+	if json.Unmarshal(data, v) != nil {
+		return nil
+	}
+	u, err := uuid.Parse(*id)
+	if err != nil {
+		return nil
+	}
+	return s.byID[u]
+}
+
+func (s *Sender) Handle(ev Event) {
+	switch ev.Type {
+	case Disconnected:
+		for _, x := range s.xfers {
+			s.pause(x)
+		}
+	case Connected:
+		s.reoffer()
+	case protocol.TypePeerJoined:
+		var p protocol.Peer
+		if json.Unmarshal(ev.Data, &p) == nil && p.ID == s.to {
+			s.reoffer()
+		}
+	case protocol.TypeTransferAnswer:
+		var a protocol.TransferAnswer
+		if x := s.parse(ev.Data, &a, &a.ID); x != nil && x.state == stOffered {
+			s.answered(x, a)
+		}
+	case protocol.TypeFlowCredit:
+		var m protocol.FlowCredit
+		if x := s.parse(ev.Data, &m, &m.ID); x != nil && x.state == stActive {
+			x.credits += m.N
+			s.pump(x)
+		}
+	case protocol.TypeTransferComplete:
+		var m protocol.TransferComplete
+		if x := s.parse(ev.Data, &m, &m.ID); x != nil && x.state == stActive {
+			s.finish(x, nil)
+		}
+	case protocol.TypeTransferFailed:
+		var m protocol.TransferFailed
+		x := s.parse(ev.Data, &m, &m.ID)
+		if x == nil || terminal(x.state) {
+			return
+		}
+		if m.Reason == "peer-disconnected" {
+			s.pause(x)
+			return
+		}
+		s.finish(x, errors.New(reasonText(m.Reason)))
+	case protocol.TypeTransferCancel:
+		var m protocol.TransferCancel
+		if x := s.parse(ev.Data, &m, &m.ID); x != nil && !terminal(x.state) {
+			s.finish(x, errors.New("canceled by the receiver"))
+		}
+	}
+}
+
+func (s *Sender) answered(x *sendXfer, a protocol.TransferAnswer) {
+	if !a.Accept {
+		s.finish(x, errors.New("declined"))
+		return
+	}
+	// Encrypted only when both sides supplied a key, which is the server's
+	// rule too; the latest receiver key wins so a receiver that came back
+	// with a new one still works (chunks are sealed independently).
+	x.key, x.sas = nil, ""
+	if a.Key != "" {
+		key, sas, err := shared(x.kp, a.Key)
+		if err != nil {
+			s.cancel(x, "key exchange failed")
+			return
+		}
+		x.key, x.sas = key, sas
+		if err := s.c.Send(protocol.TypeTransferKey, protocol.TransferKey{ID: x.id.String(), Key: x.kp.pub}); err != nil {
+			return // the link is going; Disconnected follows
+		}
+	}
+	if a.Offset < 0 || a.Offset > x.offset || a.Offset%protocol.ChunkSize != 0 {
+		s.cancel(x, "bad resume offset")
+		return
+	}
+	x.offset, x.credits, x.state = a.Offset, protocol.CreditWindow, stActive
+	if s.OnStart != nil {
+		s.OnStart(x.f, x.sas)
+	}
+	s.pump(x)
+}
+
+// pump sends while credits last; the rest waits for flow-credit.
+func (s *Sender) pump(x *sendXfer) {
+	for x.state == stActive && x.credits > 0 && x.offset < x.f.Size {
+		n := min(int64(protocol.ChunkSize), x.f.Size-x.offset)
+		buf := s.frame[protocol.FrameOverhead : protocol.FrameOverhead+n]
+		if _, err := x.file.ReadAt(buf, x.offset); err != nil {
+			s.cancel(x, "couldn't read the file")
+			return
+		}
+		payload := buf
+		if x.key != nil {
+			payload = sealChunk(x.key, uint32(x.offset/protocol.ChunkSize), x.id, buf[:0], buf)
+		}
+		copy(s.frame, x.id[:])
+		if err := s.c.SendFrame(s.frame[:protocol.FrameOverhead+len(payload)]); err != nil {
+			return // Disconnected follows and pauses it
+		}
+		x.credits--
+		x.offset += n
+		if s.OnProgress != nil {
+			s.OnProgress()
+		}
+	}
+}
+
+func (s *Sender) pause(x *sendXfer) {
+	if x.state == stOffered || x.state == stActive {
+		x.state, x.credits, x.since = stPaused, 0, time.Now()
+		if s.OnPause != nil {
+			s.OnPause(x.f)
+		}
+	}
+}
+
+func (s *Sender) cancel(x *sendXfer, reason string) {
+	if x.state == stOffered || x.state == stActive {
+		_ = s.c.Send(protocol.TypeTransferCancel, protocol.TransferCancel{ID: x.id.String(), Reason: reason})
+	}
+	s.finish(x, errors.New(reason))
+}
+
+func (s *Sender) finish(x *sendXfer, err error) {
+	if x.file != nil {
+		_ = x.file.Close()
+		x.file = nil
+	}
+	x.state, x.err = stDone, nil
+	if err != nil {
+		x.state, x.err = stFailed, err
+	}
+	if s.OnDone != nil {
+		s.OnDone(x.f, err)
+	}
+	s.fill()
+}
+
+// Reap gives up on transfers that waited longer than maxWait for the peer
+// to come back. Zero means wait forever.
+func (s *Sender) Reap(maxWait time.Duration) {
+	if maxWait <= 0 {
+		return
+	}
+	for _, x := range s.xfers {
+		if x.state == stPaused && time.Since(x.since) > maxWait {
+			s.finish(x, errors.New("they didn't come back"))
+		}
+	}
+}
+
+// Cancel withdraws everything still open, e.g. on Ctrl-C.
+func (s *Sender) Cancel() {
+	for _, x := range s.xfers {
+		if !terminal(x.state) {
+			s.cancel(x, "canceled")
+		}
+	}
+}
+
+func (s *Sender) Finished() bool {
+	for _, x := range s.xfers {
+		if !terminal(x.state) {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Sender) Failed() int {
+	n := 0
+	for _, x := range s.xfers {
+		if x.state == stFailed {
+			n++
+		}
+	}
+	return n
+}
+
+func (s *Sender) Progress() (sent, total int64) {
+	for _, x := range s.xfers {
+		total += x.f.Size
+		if x.state == stDone {
+			sent += x.f.Size
+		} else {
+			sent += x.offset
+		}
+	}
+	return sent, total
+}
+
+// Receiver
+
+// Offer is a file a peer wants to send us, waiting for Answer.
+type Offer struct {
+	ID        uuid.UUID
+	Name      string
+	Size      int64
+	From      protocol.Peer
+	Encrypted bool
+	commit    string
+}
+
+type recvXfer struct {
+	id     uuid.UUID
+	name   string
+	size   int64
+	from   protocol.Peer
+	commit string
+	kp     keypair
+	key    cipher.AEAD
+	sas    string
+	part   *os.File
+	path   string
+	bytes  int64
+	state  state
+	since  time.Time
+}
+
+// Receiver takes files into a directory. Drive it from one goroutine:
+// Handle every event, Answer what Pending offers. A sender that drops
+// mid-transfer resumes from what we hold when it re-offers.
+type Receiver struct {
+	c       *Client
+	dir     string
+	pending []*Offer
+	xfers   map[uuid.UUID]*recvXfer
+
+	// OnStart runs when the transfer is set up; sas is "" for a sender
+	// without crypto. OnPause runs when the sender or the link went away.
+	// OnDone runs with the saved path, or why it failed. OnExpired runs
+	// when an unanswered offer went away.
+	OnStart    func(name string, from protocol.Peer, sas string)
+	OnPause    func(name string, from protocol.Peer)
+	OnProgress func()
+	OnDone     func(name string, from protocol.Peer, path string, err error)
+	OnNote     func(from protocol.Peer, text string)
+	OnExpired  func(o *Offer, reason string)
+}
+
+func NewReceiver(c *Client, dir string) *Receiver {
+	return &Receiver{c: c, dir: dir, xfers: map[uuid.UUID]*recvXfer{}}
+}
+
+// Pending lists offers that still need an Answer.
+func (r *Receiver) Pending() []*Offer { return slices.Clone(r.pending) }
+
+// Active counts transfers that are running or waiting for their sender.
+func (r *Receiver) Active() int {
+	n := 0
+	for _, x := range r.xfers {
+		if x.state == stActive || x.state == stPaused {
+			n++
+		}
+	}
+	return n
+}
+
+// Progress sums the transfers that are still open.
+func (r *Receiver) Progress() (got, total int64) {
+	for _, x := range r.xfers {
+		if x.state == stActive || x.state == stPaused {
+			got += x.bytes
+			total += x.size
+		}
+	}
+	return got, total
+}
+
+func (r *Receiver) pause(x *recvXfer) {
+	if x.state != stActive {
+		return
+	}
+	x.state, x.since = stPaused, time.Now()
+	if r.OnPause != nil {
+		r.OnPause(x.name, x.from)
+	}
+}
+
+func (r *Receiver) takePending(id uuid.UUID) *Offer {
+	for i, o := range r.pending {
+		if o.ID == id {
+			r.pending = slices.Delete(r.pending, i, i+1)
+			return o
+		}
+	}
+	return nil
+}
+
+func (r *Receiver) expire(o *Offer, reason string) {
+	if r.OnExpired != nil {
+		r.OnExpired(o, reason)
+	}
+}
+
+func (r *Receiver) Handle(ev Event) {
+	switch ev.Type {
+	case Frame:
+		r.chunk(ev.Frame)
+	case Disconnected:
+		for _, o := range r.pending {
+			r.expire(o, "connection lost")
+		}
+		r.pending = nil
+		for _, x := range r.xfers {
+			r.pause(x)
+		}
+	case protocol.TypeTransferOffer:
+		r.offered(ev.Data)
+	case protocol.TypeTransferKey:
+		var m protocol.TransferKey
+		if json.Unmarshal(ev.Data, &m) != nil {
+			return
+		}
+		id, _ := uuid.Parse(m.ID)
+		x := r.xfers[id]
+		if x == nil || x.state != stActive || x.commit == "" {
+			return
+		}
+		c, err := commitment(m.Key)
+		if err != nil || c != x.commit {
+			r.fail(x, "key verification failed")
+			return
+		}
+		key, sas, err := shared(x.kp, m.Key)
+		if err != nil {
+			r.fail(x, "key exchange failed")
+			return
+		}
+		x.key, x.sas = key, sas
+		if r.OnStart != nil {
+			r.OnStart(x.name, x.from, sas)
+		}
+	case protocol.TypeTransferFailed:
+		var m protocol.TransferFailed
+		if json.Unmarshal(ev.Data, &m) != nil {
+			return
+		}
+		id, _ := uuid.Parse(m.ID)
+		if o := r.takePending(id); o != nil {
+			r.expire(o, reasonText(m.Reason))
+			return
+		}
+		x := r.xfers[id]
+		if x == nil || terminal(x.state) {
+			return
+		}
+		if m.Reason == "peer-disconnected" {
+			r.pause(x)
+			return
+		}
+		r.abandon(x, errors.New(reasonText(m.Reason)))
+	case protocol.TypeTransferCancel:
+		var m protocol.TransferCancel
+		if json.Unmarshal(ev.Data, &m) != nil {
+			return
+		}
+		id, _ := uuid.Parse(m.ID)
+		if o := r.takePending(id); o != nil {
+			r.expire(o, "withdrawn by the sender")
+			return
+		}
+		if x := r.xfers[id]; x != nil && !terminal(x.state) {
+			r.abandon(x, errors.New("canceled by the sender"))
+		}
+	case protocol.TypeSnippet:
+		var m protocol.Snippet
+		if json.Unmarshal(ev.Data, &m) == nil && m.From != nil && r.OnNote != nil {
+			r.OnNote(*m.From, m.Text)
+		}
+	}
+}
+
+func (r *Receiver) offered(data json.RawMessage) {
+	var m protocol.TransferOffer
+	if json.Unmarshal(data, &m) != nil || m.From == nil || m.Size <= 0 {
+		return
+	}
+	id, err := uuid.Parse(m.ID)
+	if err != nil {
+		return
+	}
+	name := safeName(m.Name)
+	if x := r.xfers[id]; x != nil {
+		switch {
+		case (x.state == stActive || x.state == stPaused) && x.from.ID == m.From.ID && x.name == name && x.size == m.Size:
+			r.resume(x, m)
+		case x.state == stDone:
+			// We already have it; a fast no beats their 30-second timeout.
+			_ = r.c.Send(protocol.TypeTransferAnswer, protocol.TransferAnswer{ID: m.ID})
+		}
+		return
+	}
+	for _, o := range r.pending {
+		if o.ID == id {
+			return
+		}
+	}
+	r.pending = append(r.pending, &Offer{ID: id, Name: name, Size: m.Size, From: *m.From, Encrypted: m.Key != "", commit: m.Key})
+}
+
+// resume answers a re-offer of a transfer we hold part of. The server only
+// accepts an offset at or below the sender's hint, so rewind to it.
+func (r *Receiver) resume(x *recvXfer, m protocol.TransferOffer) {
+	off := min(x.bytes/protocol.ChunkSize*protocol.ChunkSize, m.Offset)
+	if err := x.part.Truncate(off); err != nil {
+		r.fail(x, "couldn't reopen the part file")
+		return
+	}
+	x.bytes = off
+	if m.Key != x.commit {
+		x.commit, x.key, x.sas = m.Key, nil, ""
+	}
+	pub := ""
+	if x.commit != "" {
+		if x.kp.pub == "" {
+			kp, err := newKeypair()
+			if err != nil {
+				r.fail(x, "couldn't set up encryption")
+				return
+			}
+			x.kp = kp
+		}
+		pub = x.kp.pub
+	}
+	x.state = stActive
+	err := r.c.Send(protocol.TypeTransferAnswer, protocol.TransferAnswer{ID: m.ID, Accept: true, Key: pub, Offset: off})
+	if err != nil {
+		r.pause(x)
+		return
+	}
+	if x.commit == "" && r.OnStart != nil {
+		r.OnStart(x.name, x.from, "")
+	}
+}
+
+var ErrExpired = errors.New("the offer is no longer open")
+
+// Answer accepts or declines a pending offer. Accepting opens a part file
+// in the directory; the file gets its real name once every byte is in.
+func (r *Receiver) Answer(o *Offer, accept bool) error {
+	i := slices.Index(r.pending, o)
+	if i < 0 {
+		return ErrExpired
+	}
+	r.pending = slices.Delete(r.pending, i, i+1)
+	if !accept {
+		return r.c.Send(protocol.TypeTransferAnswer, protocol.TransferAnswer{ID: o.ID.String()})
+	}
+	x := &recvXfer{id: o.ID, name: o.Name, size: o.Size, from: o.From, commit: o.commit, state: stActive}
+	x.path = filepath.Join(r.dir, ".beam-"+o.ID.String()+".part")
+	f, err := os.OpenFile(x.path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		_ = r.c.Send(protocol.TypeTransferAnswer, protocol.TransferAnswer{ID: o.ID.String()})
+		return err
+	}
+	x.part = f
+	pub := ""
+	if x.commit != "" {
+		if x.kp, err = newKeypair(); err != nil {
+			_ = f.Close()
+			_ = os.Remove(x.path)
+			return err
+		}
+		pub = x.kp.pub
+	}
+	r.xfers[o.ID] = x
+	if err := r.c.Send(protocol.TypeTransferAnswer, protocol.TransferAnswer{ID: o.ID.String(), Accept: true, Key: pub}); err != nil {
+		r.pause(x) // the sender re-offers when we are back
+		return nil
+	}
+	if x.commit == "" && r.OnStart != nil {
+		r.OnStart(x.name, x.from, "")
+	}
+	return nil
+}
+
+func (r *Receiver) chunk(frame []byte) {
+	id, data, err := protocol.SplitFrame(frame)
+	if err != nil {
+		return
+	}
+	x := r.xfers[id]
+	if x == nil || x.state != stActive {
+		return
+	}
+	if x.commit != "" && x.key == nil {
+		r.fail(x, "chunk before key")
+		return
+	}
+	plain := data
+	if x.key != nil {
+		if plain, err = openChunk(x.key, uint32(x.bytes/protocol.ChunkSize), id, data[:0], data); err != nil {
+			r.fail(x, "integrity check failed")
+			return
+		}
+	}
+	if x.bytes+int64(len(plain)) > x.size {
+		r.fail(x, "more bytes than announced")
+		return
+	}
+	if _, err := x.part.WriteAt(plain, x.bytes); err != nil {
+		r.fail(x, "couldn't write the file")
+		return
+	}
+	x.bytes += int64(len(plain))
+	if r.OnProgress != nil {
+		r.OnProgress()
+	}
+	if x.bytes == x.size {
+		r.finish(x)
+	}
+}
+
+func (r *Receiver) finish(x *recvXfer) {
+	err := x.part.Sync()
+	if cerr := x.part.Close(); err == nil {
+		err = cerr
+	}
+	x.part = nil
+	var final string
+	if err == nil {
+		final, err = uniquePath(r.dir, x.name)
+	}
+	if err == nil {
+		err = os.Rename(x.path, final)
+	}
+	if err != nil {
+		_ = os.Remove(x.path)
+		x.state = stFailed
+		if r.OnDone != nil {
+			r.OnDone(x.name, x.from, "", fmt.Errorf("couldn't save the file: %w", err))
+		}
+		return
+	}
+	x.state = stDone
+	if r.OnDone != nil {
+		r.OnDone(x.name, x.from, final, nil)
+	}
+}
+
+// fail tells the sender and drops the part; abandon only drops the part.
+func (r *Receiver) fail(x *recvXfer, reason string) {
+	if x.state == stActive {
+		_ = r.c.Send(protocol.TypeTransferCancel, protocol.TransferCancel{ID: x.id.String(), Reason: reason})
+	}
+	r.abandon(x, errors.New(reason))
+}
+
+func (r *Receiver) abandon(x *recvXfer, err error) {
+	if x.part != nil {
+		_ = x.part.Close()
+		x.part = nil
+	}
+	_ = os.Remove(x.path)
+	x.state = stFailed
+	if r.OnDone != nil {
+		r.OnDone(x.name, x.from, "", err)
+	}
+}
+
+// Reap gives up on transfers whose sender has been gone longer than maxWait.
+func (r *Receiver) Reap(maxWait time.Duration) {
+	if maxWait <= 0 {
+		return
+	}
+	for _, x := range r.xfers {
+		if x.state == stPaused && time.Since(x.since) > maxWait {
+			r.abandon(x, errors.New("the sender didn't come back"))
+		}
+	}
+}
+
+// Cancel declines what is pending, withdraws what is open and removes the
+// part files, e.g. on Ctrl-C.
+func (r *Receiver) Cancel() {
+	for _, o := range r.pending {
+		_ = r.c.Send(protocol.TypeTransferAnswer, protocol.TransferAnswer{ID: o.ID.String()})
+	}
+	r.pending = nil
+	for _, x := range r.xfers {
+		if x.state == stActive || x.state == stPaused {
+			r.fail(x, "canceled")
+		}
+	}
+}
+
+var reservedName = regexp.MustCompile(`(?i)^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$`)
+
+// safeName keeps a received name inside the directory and valid on this OS.
+func safeName(name string) string {
+	name = name[strings.LastIndexAny(name, `/\`)+1:]
+	name = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f || (runtime.GOOS == "windows" && strings.ContainsRune(`<>:"|?*`, r)) {
+			return '_'
+		}
+		return r
+	}, name)
+	name = strings.TrimSpace(name)
+	if runtime.GOOS == "windows" {
+		name = strings.TrimRight(name, ". ")
+		if reservedName.MatchString(name) {
+			name = "_" + name
+		}
+	}
+	if name == "" || name == "." || name == ".." {
+		name = "file"
+	}
+	return name
+}
+
+// uniquePath is dir/name, or dir/name (n) when that exists already.
+func uniquePath(dir, name string) (string, error) {
+	ext := filepath.Ext(name)
+	stem := strings.TrimSuffix(name, ext)
+	for i := 0; i < 1000; i++ {
+		cand := name
+		if i > 0 {
+			cand = fmt.Sprintf("%s (%d)%s", stem, i, ext)
+		}
+		p := filepath.Join(dir, cand)
+		_, err := os.Lstat(p)
+		if errors.Is(err, fs.ErrNotExist) {
+			return p, nil
+		}
+		if err != nil {
+			return "", err
+		}
+	}
+	return "", fmt.Errorf("too many files named %s", name)
+}

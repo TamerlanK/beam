@@ -4,6 +4,37 @@ ADR-style log. Each entry: context → decision → consequences.
 
 ---
 
+## 2026-09-08 — A terminal client in the same binary
+
+**Context.** Every beam device was a browser. The machine that most often
+has a file to hand off is the one without a screen: a build server, a
+Raspberry Pi, a CI runner, an SSH session. Wormhole-style tools cover
+that but need an install on both ends; beam's relay only needs one.
+
+**Decision.** `beam ls`, `beam send` and `beam recv` live in the server
+binary and speak the wire protocol from Go (`internal/client`): the same
+offer/answer, the same commit-then-reveal ECDH, the same AES-GCM chunk
+sealing with the chunk index as nonce, so a browser on the other side
+shows a matching verification code and needs nothing new. The client
+reconnects with backoff and resumes by offset in both directions while
+the process runs. Each run is its own device, with a fresh id and the
+saved name, so a `send` in one shell cannot replace a `recv` in another.
+It never negotiates WebRTC: a peer that ignores signaling is relayed,
+which is what the browser falls back to anyway. A receiver without
+crypto (a browser on plain http) is served in the clear with a warning,
+as the browser itself does.
+
+**Consequences.** Headless boxes and scripts join the radar with no new
+protocol and no new dependency (`crypto/ecdh`, `crypto/aes`), at the
+cost of one more subcommand parser in `cmd/beam`. A vector pinned in Go
+and checked under Node's WebCrypto keeps the two implementations from
+drifting. Not done: drops, previews, resume across a process restart
+(the browser keeps keys in IndexedDB, the terminal keeps them in
+memory) and a `terminal` device type, so the radar shows the client as
+a laptop.
+
+---
+
 ## 2026-09-08 — Commit to the sender's key before revealing it
 
 **Context.** The verification code is 20 bits of a hash over both

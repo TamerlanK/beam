@@ -52,6 +52,47 @@ test("drop links: the URL-fragment secret round-trips to a working key", async (
   );
 });
 
+test("interop: a chunk sealed by the Go client opens here with the same verification code", async () => {
+  // Pinned in internal/client/vector_test.go: the sender's key is the scalar
+  // 1..32, ours is 33..64; a Go sender sealed chunk 3 of that transfer.
+  const pubA =
+    "BFFcPW6545a5BNP+yn9U/c0MwemXvzddylFa0KbDtANfRTa+OlDzGPv5pUdZAqIhUCvvDVfgjFOyzApW8X2fk1Q=";
+  const pubB =
+    "BB8UAUa/sbJR+E9N2+DUzc/Xev2YSpUg41eUAh+DErue7JlaCLH6dwTfPcwLUKlmUmP7dxH5X5+KRJxQluR8iSs=";
+  const bytes = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  const b64url = (b) =>
+    btoa(String.fromCharCode(...b))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+  const raw = bytes(pubB);
+  const priv = await crypto.subtle.importKey(
+    "jwk",
+    {
+      kty: "EC",
+      crv: "P-256",
+      d: b64url(Uint8Array.from({ length: 32 }, (_, i) => 33 + i)),
+      x: b64url(raw.subarray(1, 33)),
+      y: b64url(raw.subarray(33)),
+    },
+    { name: "ECDH", namedCurve: "P-256" },
+    false,
+    ["deriveKey"],
+  );
+  assert.equal(
+    await commit(pubA),
+    "QmmIlDHjExlm/K9qRXFBlD7Sw1tbkXrmLLM5VG9SNVE=",
+  );
+  const { key, sas } = await shared(priv, pubB, pubA);
+  assert.equal(sas, "NN74");
+  const id = Uint8Array.from(
+    "0f1e2d3c4b5a49788796a5b4c3d2e1f0".match(/../g),
+    (h) => parseInt(h, 16),
+  );
+  const box = bytes("JaDYl764NTv1GNQ6WVOIlfISPRi4d9UliodJOYKmR3KIy5Y=");
+  assert.equal(dec(await open(key, 3, id, box)), "beam interop vector");
+});
+
 test("frame prefix: uuid string <-> 16 bytes round-trips", async () => {
   globalThis.matchMedia = () => ({}); // util.js touches it at import time
   const { uuid, uuidBytes, bytesToUUID } = await import("../static/js/util.js");

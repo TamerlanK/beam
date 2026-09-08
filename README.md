@@ -32,7 +32,8 @@ go run ./cmd/beam        # then open http://localhost:8080 on two devices
 - **History** — the last 50 transfers stay in the panel with a "Save again" button for a couple of minutes after a receive; your name and avatar are editable and persist per browser
 - **Light and dark, keyboard and screen-reader friendly** — theme follows the system and can be toggled; dialogs are native `<dialog>`s with focus management and live regions
 - **Ephemeral by design** — no database, no server-side storage, nothing written to disk; a drop is the one thing the server holds, as ciphertext, in RAM, for minutes
-- **One binary** — the vanilla HTML/CSS/JS frontend is embedded with `embed.FS`; `./beam` is the whole deployment
+- **A terminal client, too** — `beam send` and `beam recv` speak the same protocol with the same encryption from a shell, so a headless server, a CI job or an SSH session drops files to a phone's browser and back, with matching verification codes; see [From a terminal](#from-a-terminal)
+- **One binary** — the vanilla HTML/CSS/JS frontend is embedded with `embed.FS`; `./beam` is the whole deployment, server and terminal client
 
 ## Using beam
 
@@ -49,6 +50,37 @@ go run ./cmd/beam        # then open http://localhost:8080 on two devices
 **Share from other apps.** Install beam as a PWA (browser menu → Install). On Android and desktop Chromium it registers as a share target, so "Share → beam" from any app opens beam with the files staged; tap the device to send.
 
 **Staging.** Drop files anywhere on the page, not just on a device, to stage them. A bar appears at the top; tap a device to send them there, or **Get a link** to leave them on the server.
+
+### From a terminal
+
+The same binary is also a client, for the machine that has no browser: a headless server, a Raspberry Pi, a CI job, an SSH session. It speaks the same protocol with the same encryption, so it shows up on the radar like any other device, and files go to and from a phone's browser with matching verification codes.
+
+```sh
+beam ls                                      # who is in the room
+beam send build.tar.gz -to "Purple Falcon"   # offer a file; the receiver accepts in the browser
+beam send -text "https://…" -to purple       # a note; names and ids match case-insensitively, prefixes work
+beam recv -dir ~/Downloads                   # wait for offers, ask y/N, save
+beam recv -yes -once -dir out                # headless: accept everything, exit after the first transfer
+beam send -join XK7P photo.jpg               # another network: use the code the other device shows
+beam recv -share                             # … or print a code for them to join
+```
+
+Set `BEAM_SERVER` (or `-server`) to the server's URL; the default is `http://localhost:8080`. Same-network discovery works as in the browser because the client connects from the same address. A device name is chosen on first run and saved under the user config directory; `-name` overrides it for one run.
+
+| Flag | Commands | What it does |
+| --- | --- | --- |
+| `-server` | all | Server URL (`BEAM_SERVER` sets the default) |
+| `-join CODE` | all | Enter the room behind a 4-character code |
+| `-share` | send, recv | Print a code other devices can join |
+| `-to` | send | Device to send to: a name or id, or a prefix of one; the only other device if omitted |
+| `-text` | send | Send a note instead of files |
+| `-dir` | recv | Where to save (default `.`) |
+| `-yes` | recv | Accept every offer without asking (required when stdin is not a terminal) |
+| `-once` | recv | Exit after the first transfer finishes |
+| `-wait` | all | How long to wait for a device to appear or come back (default `5m`, `0` = forever) |
+| `-name` | all | Device name for this run |
+
+A received file gets its name (`name (1)` if that exists) only once every byte is in and verified; until then it is `.beam-<id>.part` in the same directory. `recv` prints each saved path on stdout and everything else on stderr, and exits non-zero if a transfer failed; Ctrl-C withdraws open transfers on either side. Everything goes through the relay (no WebRTC), and a transfer resumes after a dropped link or a peer that reconnects for as long as the process runs.
 
 ## Quickstart
 
@@ -170,8 +202,9 @@ Formatting is enforced in CI, so `make fmt` is the only style rule. Line endings
 Layout:
 
 ```
-cmd/beam        entrypoint and flags
+cmd/beam        entrypoint: server flags, and the ls/send/recv terminal commands
 cmd/loadtest    load harness
+internal/client the Go client: reconnecting socket, browser-compatible crypto, sender and receiver
 internal/hub    the hub goroutine: rooms, clients, transfers, drops, relay
 internal/server HTTP + WebSocket upgrade, embedded assets, integration and leak tests
 internal/protocol  envelope parsing and validation (fuzzed)
