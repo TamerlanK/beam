@@ -63,6 +63,7 @@ const (
 	TypeTransferOffer    = "transfer-offer"
 	TypeTransferAnswer   = "transfer-answer"
 	TypeTransferCancel   = "transfer-cancel"
+	TypeTransferKey      = "transfer-key"
 	TypeTransferComplete = "transfer-complete"
 	TypeTransferFailed   = "transfer-failed"
 	TypeFlowCredit       = "flow-credit"
@@ -247,6 +248,14 @@ type RTC struct {
 	To     string          `json:"to,omitempty"`
 	From   string          `json:"from,omitempty"`
 	Signal json.RawMessage `json:"signal"`
+}
+
+// TransferKey reveals the sender's ephemeral public key after the answer;
+// the offer carried only a SHA-256 commitment to it, so a relay cannot pick
+// its own keys against a verification code it has already seen.
+type TransferKey struct {
+	ID  string `json:"id"`
+	Key string `json:"key"`
 }
 
 type TransferCancel struct {

@@ -4,6 +4,38 @@ ADR-style log. Each entry: context → decision → consequences.
 
 ---
 
+## 2026-09-08 — Commit to the sender's key before revealing it
+
+**Context.** The verification code is 20 bits of a hash over both
+ephemeral public keys. The offer carried the sender's key in the clear, so
+a malicious relay could forward its own key to the receiver, wait for the
+receiver's key, and then grind roughly a million P-256 keypairs (seconds
+on one core) for one whose code on the sender's screen matched the code on
+the receiver's. The README's claim that the code answers a hostile relay
+did not hold.
+
+**Decision.** ZRTP-style commitment. The offer's `key` becomes the base64
+SHA-256 of the sender's public key; the answer carries the receiver's key
+as before; the sender then reveals its key in a new `transfer-key` message
+before the first chunk, and the receiver rejects the transfer if the hash
+does not match. The server forwards the message opaquely and only
+enforces who may send it and when (sender, `accepted` state, encrypted
+transfer). The receiver queues chunks behind the key derivation and fails
+any chunk that arrives before a key on an encrypted transfer.
+
+**Consequences.** A relay must now choose its key towards the receiver
+before it knows the sender's, and its key towards the sender before it
+knows what the sender will reveal, so a substituted pair matches with
+probability 2⁻²⁰, which is what a 4-character code was always meant to
+buy. Cost: one extra control message per transfer, no extra round trip
+(the reveal rides ahead of the first chunk on the same link). A durable
+receive record is first written once the key exists, so a revived receiver
+never waits for a key that will not come. Drops are unchanged: the sender
+is gone by pickup time, so they still rely on the link form for a hostile
+relay.
+
+---
+
 ## 2026-09-08 — IPv6 devices group by /64
 
 **Context.** Rooms were keyed by the full client address. IPv4 devices

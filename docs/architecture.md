@@ -86,6 +86,8 @@ sender A                    hub                         receiver B
    │                         │                              │  accept/decline UI
    │                         │◀────transfer-answer──────────│
    │◀──transfer-answer───────│  state = Accepted            │
+   │  transfer-key           │  sender only, while Accepted │
+   │────────────────────────▶│─────transfer-key────────────▶│  hash == offer.key?
    │                         │                              │
    │  chunk #1..16           │  (initial window: 16)        │
    │═══binary frames════════▶│  state = Active on #1        │

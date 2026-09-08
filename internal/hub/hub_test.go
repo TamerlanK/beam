@@ -494,10 +494,30 @@ func TestEncryptedOfferNegotiation(t *testing.T) {
 	if want := protocol.WireSize(protocol.ChunkSize + 1); tr.Wire != want {
 		t.Fatalf("Wire = %d, want %d", tr.Wire, want)
 	}
+
+	// The receiver may not reveal a key; the sender may, exactly while accepted.
+	sendText(h, b, protocol.TypeTransferKey, protocol.TransferKey{ID: id.String(), Key: "pubA"})
+	if lastOfType(drain(t, b), protocol.TypeError) == nil {
+		t.Fatal("receiver's transfer-key accepted")
+	}
+	sendText(h, a, protocol.TypeTransferKey, protocol.TransferKey{ID: id.String(), Key: "pubA"})
+	var reveal protocol.TransferKey
+	must(t, json.Unmarshal(lastOfType(drain(t, b), protocol.TypeTransferKey).Data, &reveal))
+	if reveal.ID != id.String() || reveal.Key != "pubA" {
+		t.Fatalf("transfer-key not forwarded: %+v", reveal)
+	}
 	buf := make([]byte, protocol.MaxFrameSize)
 	h.handleFrame(inbound{from: a, frame: protocol.EncodeFrame(buf, id, make([]byte, protocol.ChunkSize+protocol.TagBytes)), pool: &buf})
 	if tr.State != StateActive {
 		t.Fatalf("tagged chunk rejected, state = %s", tr.State)
+	}
+	drain(t, b)
+	sendText(h, a, protocol.TypeTransferKey, protocol.TransferKey{ID: id.String(), Key: "pubA"})
+	if lastOfType(drain(t, a), protocol.TypeError) == nil {
+		t.Fatal("transfer-key after data accepted")
+	}
+	if lastOfType(drain(t, b), protocol.TypeTransferKey) != nil {
+		t.Fatal("late transfer-key forwarded")
 	}
 
 	id2 := uuid.New()
@@ -508,6 +528,10 @@ func TestEncryptedOfferNegotiation(t *testing.T) {
 	must(t, json.Unmarshal(lastOfType(drain(t, a), protocol.TypeTransferAnswer).Data, &ans2))
 	if ans2.Key != "" || h.transfers[id2].Wire != 10 {
 		t.Fatalf("plaintext offer got a key back: %+v wire=%d", ans2, h.transfers[id2].Wire)
+	}
+	sendText(h, a, protocol.TypeTransferKey, protocol.TransferKey{ID: id2.String(), Key: "pubA"})
+	if lastOfType(drain(t, a), protocol.TypeError) == nil {
+		t.Fatal("transfer-key on a plaintext transfer accepted")
 	}
 }
 

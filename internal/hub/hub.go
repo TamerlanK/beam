@@ -288,6 +288,12 @@ func (h *Hub) handleText(c *Client, raw []byte) {
 			return
 		}
 		h.handleCancel(c, m)
+	case protocol.TypeTransferKey:
+		var m protocol.TransferKey
+		if !h.unmarshal(c, env, &m) {
+			return
+		}
+		h.handleKey(c, m)
 	case protocol.TypeSnippet:
 		var m protocol.Snippet
 		if !h.unmarshal(c, env, &m) {
@@ -523,6 +529,31 @@ func (h *Hub) handleCancel(c *Client, m protocol.TransferCancel) {
 	h.logTransfer(t, "transfer canceled", "by", c.ID)
 }
 
+// handleKey forwards the sender's revealed public key once the receiver has
+// accepted and before any chunk: the offer only carried a commitment to it.
+func (h *Hub) handleKey(c *Client, m protocol.TransferKey) {
+	t := h.lookupTransfer(c, m.ID)
+	if t == nil {
+		return
+	}
+	if len(m.Key) > protocol.MaxKeyChars {
+		h.sendErr(c, protocol.ErrCodeBadMessage, "key too long")
+		return
+	}
+	switch {
+	case c.ID != t.FromID:
+		h.sendErr(c, protocol.ErrCodeBadTransfer, "only the sender reveals a key")
+	case t.Wire == t.Size:
+		h.sendErr(c, protocol.ErrCodeBadTransfer, "transfer is not encrypted")
+	case t.State != StateAccepted:
+		h.sendErr(c, protocol.ErrCodeBadTransfer, "key while "+t.State.String())
+	default:
+		if to := h.clients[t.ToID]; to != nil {
+			h.sendJSON(to, protocol.TypeTransferKey, protocol.TransferKey{ID: m.ID, Key: m.Key})
+		}
+	}
+}
+
 func (h *Hub) handleProfile(c *Client, m protocol.Profile) {
 	name, emoji := names.CleanName(m.Name), names.CleanEmoji(m.Emoji)
 	if name == "" || emoji == "" {
@@ -747,24 +778,6 @@ func (h *Hub) logTransfer(t *Transfer, msg string, args ...any) {
 	}, args...)...)
 }
 
-func sanitizeFilename(name string) string {
-	name = strings.ReplaceAll(name, "\\", "/")
-	name = path.Base(name)
-	name = strings.Map(func(r rune) rune {
-		if r < 0x20 || r == 0x7f {
-			return -1
-		}
-		return r
-	}, name)
-	if name == "." || name == ".." {
-		return ""
-	}
-	for len(name) > protocol.MaxFilenameBytes {
-		_, size := utf8.DecodeLastRuneInString(name)
-		name = name[:len(name)-size]
-	}
-	return strings.TrimSpace(name)
-}
 // roomKey groups devices that share a network. IPv4 devices behind one NAT
 // share a public address; IPv6 devices on one LAN each have their own
 // address inside a shared /64, so the prefix is the network.
@@ -783,3 +796,21 @@ func roomKey(ipStr string) string {
 	return "ip:" + ip.String()
 }
 
+func sanitizeFilename(name string) string {
+	name = strings.ReplaceAll(name, "\\", "/")
+	name = path.Base(name)
+	name = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, name)
+	if name == "." || name == ".." {
+		return ""
+	}
+	for len(name) > protocol.MaxFilenameBytes {
+		_, size := utf8.DecodeLastRuneInString(name)
+		name = name[:len(name)-size]
+	}
+	return strings.TrimSpace(name)
+}

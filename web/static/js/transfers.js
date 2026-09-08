@@ -5,6 +5,7 @@ import {
   available as e2e,
   keypair,
   shared,
+  commit,
   seal,
   open,
   randomKey,
@@ -102,6 +103,7 @@ function newSend(peerId, file, extra) {
     reofferedAt: -Infinity,
     priv: null,
     pub: "",
+    commit: "",
     key: null,
     sas: "",
     timer: 0,
@@ -151,6 +153,7 @@ function saveSend(t) {
       handle: t.handle,
       key: t.key,
       pub: t.pub,
+      commit: t.commit,
       sas: t.sas,
       offset: t.offset,
       at: Date.now(),
@@ -200,6 +203,7 @@ function revive(r) {
     durable: true,
     key: r.key,
     pub: r.pub || "",
+    commit: r.commit || "",
     sas: r.sas || "",
     timer: 0,
     drop: "",
@@ -342,6 +346,8 @@ async function offer(peerId, file) {
   if (kp) {
     t.priv = kp.priv;
     t.pub = kp.pub;
+    t.commit = await commit(kp.pub).catch(() => "");
+    if (!t.commit) t.priv = t.pub = "";
   }
   t.preview = preview;
   if (t.state !== "offered") return;
@@ -352,7 +358,7 @@ async function offer(peerId, file) {
       name: file.name,
       size: file.size,
       mime: file.type,
-      key: t.pub || undefined,
+      key: t.commit || undefined,
       preview: preview || undefined,
     });
   } catch {
@@ -574,6 +580,7 @@ export function onChunk(data, link) {
   t.chain = t.chain
     .then(async () => {
       if (t.state !== "active") return;
+      if (t.commit && !t.key) throw new Error("chunk before key");
       let buf = data.slice(16);
       if (t.key) buf = await open(t.key, n, t.idBytes, buf);
       t.bytes += buf.byteLength;
@@ -654,8 +661,10 @@ async function acceptOne(d, dir) {
     return;
   }
   let pub = "",
+    priv = null,
     key = null,
-    sas = "";
+    sas = "",
+    commitment = "";
   if (d.drop) {
     try {
       key = d.anyone
@@ -671,14 +680,16 @@ async function acceptOne(d, dir) {
       return;
     }
   } else if (d.key && e2e) {
+    // d.key is the sender's commitment; the key itself arrives as
+    // transfer-key after our answer, and must hash to this.
     try {
       const kp = await keypair();
-      ({ key, sas } = await shared(kp.priv, kp.pub, d.key));
       pub = kp.pub;
+      priv = kp.priv;
+      commitment = d.key;
     } catch {
       pub = "";
-      key = null;
-      sas = "";
+      priv = null;
     }
   }
   if (!state.offers.includes(d)) {
@@ -707,6 +718,8 @@ async function acceptOne(d, dir) {
     key,
     sas,
     pub,
+    priv,
+    commit: commitment,
     durable: !d.drop && sink.durable === true,
     target: sink.target || null,
     savedBytes: -1,
@@ -734,7 +747,7 @@ async function acceptOne(d, dir) {
     return end(t, "failed", "connection lost");
   }
   emit("transfer:add", t);
-  if (t.durable) saveRecv(t);
+  if (t.durable && !t.commit) saveRecv(t);
 }
 
 export function cancel(t, note = "canceled") {
@@ -867,7 +880,7 @@ function retryPaused() {
         name: t.name,
         size: t.size,
         mime: t.mime,
-        key: t.pub || undefined,
+        key: t.commit || undefined,
         offset: hint,
       });
     } catch {}
@@ -991,6 +1004,13 @@ export const handlers = {
       }
     }
     if (t.state !== "offered" && t.state !== "paused") return;
+    if (t.key) {
+      try {
+        t.link.send("transfer-key", { id: t.id, key: t.pub });
+      } catch {
+        return cancel(t, "connection lost");
+      }
+    }
     const off = Number(d.offset) || 0;
     if (off < 0 || off > t.offset || off % CHUNK)
       return cancel(t, "bad resume offset");
@@ -1006,6 +1026,26 @@ export const handlers = {
     }
     emit("transfer:state", t);
     pump(t);
+  },
+  "transfer-key"(d, link) {
+    const t = mine(d, link);
+    if (!t || t.dir !== "recv" || t.state !== "active" || !t.commit) return;
+    if (t.key || typeof d.key !== "string") return;
+    // Queue behind the chain so no chunk is opened before the key exists.
+    t.chain = t.chain.then(async () => {
+      if (t.state !== "active" || t.key) return;
+      if ((await commit(d.key)) !== t.commit) throw new Error("commitment");
+      ({ key: t.key, sas: t.sas } = await shared(t.priv, t.pub, d.key));
+      t.priv = null;
+      if (t.durable) saveRecv(t);
+      emit("transfer:state", t);
+    });
+    t.chain.catch(() => {
+      if (t.state === "active") {
+        t.sink.abort();
+        cancel(t, "key verification failed");
+      }
+    });
   },
   "flow-credit"(d, link) {
     const t = mine(d, link);

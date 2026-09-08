@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import {
   keypair,
   shared,
+  commit,
   seal,
   open,
   randomKey,
@@ -31,6 +32,14 @@ test("per-transfer ECDH: same key and code on both sides, sealed chunks bound to
   const stranger = await keypair();
   const ss = await shared(stranger.priv, stranger.pub, a.pub);
   await assert.rejects(open(ss.key, 7, aad, box), "third party must fail");
+});
+
+test("commitment: binds the offer to one public key", async () => {
+  const a = await keypair();
+  const c = await commit(a.pub);
+  assert.match(c, /^[A-Za-z0-9+/]{43}=$/);
+  assert.equal(await commit(a.pub), c);
+  assert.notEqual(await commit((await keypair()).pub), c);
 });
 
 test("drop links: the URL-fragment secret round-trips to a working key", async () => {

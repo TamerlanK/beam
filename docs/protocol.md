@@ -135,8 +135,10 @@ room; `name` sanitized (path components and control chars stripped) and
 ≤255 bytes; `0 < size ≤ 50GB`; `key` ≤128 chars; at most 32 live transfers
 per sender.
 
-`key` is optional: the sender's ephemeral ECDH P-256 public key (raw,
-base64). The server forwards it opaquely and never sees a private key.
+`key` is optional: a **commitment** to the sender's ephemeral ECDH P-256
+public key, the base64 SHA-256 of the raw point. The key itself follows in
+`transfer-key` after the answer. The server forwards both opaquely and
+never sees a private key.
 
 `preview` is optional: a `data:image/{jpeg,png,webp};base64,` thumbnail of
 at most 40KB (first page for PDFs), shown in the receiver's accept prompt.
@@ -180,13 +182,33 @@ drops. The server starts its relayed and written counters at this offset
 (its wire equivalent for encrypted transfers), so completion accounting is
 unchanged. Omitted means zero, a fresh transfer.
 
-`key` is the receiver's ephemeral public key, ≤128 chars. The server strips
-it if the offer carried no key. When both sides supplied a key the transfer
-is end-to-end encrypted: each chunk is AES-256-GCM sealed with a key derived
-by ECDH, IV = 96-bit big-endian chunk index, AAD = the 16-byte transfer id,
-and the server accounts for the 16-byte tag per chunk. Both browsers show
-the same 4-character verification code derived from both public keys; a
-relay that substitutes keys produces mismatched codes.
+`key` is the receiver's ephemeral public key (raw P-256, base64), ≤128
+chars. The server strips it if the offer carried no key. When both sides
+supplied a key the transfer is end-to-end encrypted: each chunk is
+AES-256-GCM sealed with a key derived by ECDH, IV = 96-bit big-endian chunk
+index, AAD = the 16-byte transfer id, and the server accounts for the
+16-byte tag per chunk. Both browsers show the same 4-character verification
+code derived from both public keys; a relay that substitutes keys produces
+mismatched codes.
+
+### `transfer-key` (C→S, forwarded S→C)
+
+```json
+{"v":1,"type":"transfer-key","data":{"id":"7f3a…","key":"BGx1…"}}
+```
+
+Sender → receiver, after the answer and before the first chunk: the public
+key the offer committed to. The receiver hashes it, compares with the
+offer's `key`, and fails the transfer on a mismatch. Only the sender may
+send it, only while the transfer is `accepted`, and only on an encrypted
+transfer; anything else is `bad-transfer`.
+
+Why commit first: with a 4-character (20-bit) code, a relay that sees the
+sender's key before choosing its own could grind about a million keypairs
+for one whose code on the receiver's screen matches the sender's. With the
+commitment the relay must pick its key towards the receiver before it
+knows the sender's, and its key towards the sender before it knows what the
+sender will reveal, so a substituted pair matches with probability 2⁻²⁰.
 
 ### `flow-credit` (S→C, sender only)
 

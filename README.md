@@ -21,7 +21,7 @@ go run ./cmd/beam        # then open http://localhost:8080 on two devices
 - **Cross-network rooms** — a 4-char code (unambiguous alphabet, 10-minute idle TTL) or QR scan joins a device from anywhere into your room
 - **Streamed transfers** — accept/decline prompt, then 64KB chunks relayed with live progress (%, MB/s, ETA) on both sides; multi-file queues per peer, concurrent transfers across pairs
 - **Direct when possible** — same-network and STUN-reachable devices negotiate a WebRTC data channel and stream peer-to-peer at LAN speed; anything else falls back to the relay automatically
-- **End-to-end encrypted** — every transfer negotiates an ephemeral ECDH key and seals chunks with AES-256-GCM in the browser; both sides show a matching 4-character verification code, and the relay only ever sees ciphertext
+- **End-to-end encrypted** — every transfer negotiates an ephemeral ECDH key and seals chunks with AES-256-GCM in the browser; both sides show a matching 4-character verification code, the sender commits to its key before revealing it so a relay cannot grind for a matching code, and the relay only ever sees ciphertext
 - **Streams to disk, everywhere** — the receiver writes chunks into a part file in the browser's origin-private file system (Chrome, Firefox, Safari), so multi-GB transfers never touch RAM; on Chromium the finished file is then moved into the location you picked, elsewhere it becomes a download
 - **Survives a reload** — close the tab, crash the browser, put the laptop to sleep: both sides keep what they need (the receiver its part file and key, the sender its file handle and offset) in IndexedDB and pick up where they left off the next time the two devices see each other, for up to a day
 - **Installable** — a PWA with a share target: "Share → beam" from any app on Android or desktop, then tap the device
@@ -143,7 +143,7 @@ flowchart LR
 Recorded as dated ADRs in [docs/decisions.md](docs/decisions.md). The big ones:
 
 - **Relay first, WebRTC on top** — the relay works through every NAT/firewall and keeps the protocol exhaustively testable; a data channel is an optimization the browsers negotiate among themselves and the same envelopes flow over either pipe.
-- **Per-transfer ephemeral keys** — one ECDH exchange per file, piggybacked on the existing offer/answer; no identity keys, no key storage, forward secrecy for free. The verification code is the honest answer to a malicious relay.
+- **Per-transfer ephemeral keys, committed before revealed** — one ECDH exchange per file, piggybacked on the offer/answer; no identity keys, no key storage, forward secrecy for free. The offer carries a hash of the sender's key and the key itself follows the answer, so a malicious relay cannot pick keys against a verification code it has already seen.
 - **Receiver streams to disk where the browser allows it** — OPFS part file everywhere it exists, then File System Access on Chromium or a download elsewhere. See [docs/streaming.md](docs/streaming.md).
 - **Rooms keyed by public IP, /64 for IPv6** — same-NAT devices find each other with zero configuration; devices behind carrier-grade NAT or a shared /64 may see strangers, which is why every transfer needs an explicit accept.
 - **Sender-generated transfer UUIDs** — lets the sender start streaming immediately on acceptance without an ID round trip; the server validates format and uniqueness.
