@@ -396,3 +396,68 @@ func equal(a, b []string) bool {
 	}
 	return true
 }
+
+func TestXfersReportEveryFile(t *testing.T) {
+	addr := startServer(t)
+	src, dst := t.TempDir(), t.TempDir()
+	writeFile(t, src, "a.bin", 2*protocol.ChunkSize+1)
+	writeFile(t, src, "b.bin", 5)
+	rc := dial(t, addr, "receiver")
+	sc := dial(t, addr, "sender")
+	results := make(chan got, 4)
+	var r *Receiver
+	runReceiver(rc, dst, results, func(x *Receiver) { r = x })
+
+	var files []File
+	for _, n := range []string{"a.bin", "b.bin"} {
+		f, err := Stat(filepath.Join(src, n))
+		if err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, f)
+	}
+	s := NewSender(sc, rc.Self().ID, files)
+	if got := s.Xfers(); len(got) != 2 || got[0].State != Queued || got[0].Peer.Name != "receiver" || got[0].Label != "a.bin" {
+		t.Fatalf("before start: %+v", got)
+	}
+	s.Start()
+	timeout := time.After(30 * time.Second)
+	for !s.Finished() {
+		select {
+		case ev := <-sc.Events:
+			s.Handle(ev)
+		case <-timeout:
+			t.Fatal("timeout")
+		}
+	}
+	for range files {
+		select {
+		case g := <-results:
+			if g.err != nil {
+				t.Fatal(g.err)
+			}
+		case <-timeout:
+			t.Fatal("timeout")
+		}
+	}
+
+	sent, recv := s.Xfers(), r.Xfers()
+	if len(sent) != 2 || len(recv) != 2 {
+		t.Fatalf("want 2 statuses each side, got %d and %d", len(sent), len(recv))
+	}
+	for i := range sent {
+		a, b := sent[i], recv[i]
+		if a.ID != b.ID || a.Label != b.Label || a.Size != b.Size {
+			t.Errorf("status %d: sides disagree: %+v vs %+v", i, a, b)
+		}
+		if a.State != Done || b.State != Done || a.Done != a.Size || b.Done != b.Size {
+			t.Errorf("status %d: not finished: %+v vs %+v", i, a, b)
+		}
+		if a.SAS == "" || a.SAS != b.SAS {
+			t.Errorf("status %d: verification codes differ: %q vs %q", i, a.SAS, b.SAS)
+		}
+		if !a.State.Terminal() || a.State.String() != "done" {
+			t.Errorf("status %d: State helpers wrong for %v", i, a.State)
+		}
+	}
+}

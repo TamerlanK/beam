@@ -127,7 +127,7 @@ nothing running.
 
 | package | role |
 |---|---|
-| `cmd/beam` | flags, slog setup, signal context, exit codes |
+| `cmd/beam` | flags, slog setup, signal context, exit codes; the ls/send/recv commands and the tui (an engine goroutine that drains the socket, a Bubble Tea view over its snapshots) |
 | `cmd/loadtest` | load harness: N clients / rooms / concurrent transfers, latency + RSS report |
 | `internal/server` | HTTP wiring: embedded static, /healthz, /ws, pprof, graceful shutdown |
 | `internal/hub` | the hub goroutine, rooms, client pumps, transfer state machine, relay |

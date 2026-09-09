@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"runtime"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -22,18 +23,49 @@ import (
 
 const maxInflight = 24
 
-type state int
+type State int
 
 const (
-	stQueued state = iota
-	stOffered
-	stActive
-	stPaused
-	stDone
-	stFailed
+	Queued State = iota
+	Offered
+	Active
+	Paused
+	Done
+	Failed
 )
 
-func terminal(s state) bool { return s == stDone || s == stFailed }
+func terminal(s State) bool { return s == Done || s == Failed }
+
+func (s State) Terminal() bool { return terminal(s) }
+
+func (s State) String() string {
+	switch s {
+	case Queued:
+		return "queued"
+	case Offered:
+		return "offered"
+	case Active:
+		return "active"
+	case Paused:
+		return "paused"
+	case Done:
+		return "done"
+	case Failed:
+		return "failed"
+	}
+	return "unknown"
+}
+
+type Status struct {
+	ID    uuid.UUID
+	Label string
+	Peer  protocol.Peer
+	Size  int64
+	Done  int64
+	SAS   string
+	State State
+	Err   error
+}
 
 var reasons = map[string]string{
 	"offer-timeout":         "no answer in 30 seconds",
@@ -142,7 +174,7 @@ type sendXfer struct {
 	commit  string
 	key     cipher.AEAD
 	sas     string
-	state   state
+	state   State
 	offset  int64
 	credits int
 	since   time.Time
@@ -183,7 +215,7 @@ func (s *Sender) Start() { s.fill() }
 func (s *Sender) fill() {
 	live := 0
 	for _, x := range s.xfers {
-		if x.state == stOffered || x.state == stActive || x.state == stPaused {
+		if x.state == Offered || x.state == Active || x.state == Paused {
 			live++
 		}
 	}
@@ -191,7 +223,7 @@ func (s *Sender) fill() {
 		if live >= maxInflight {
 			return
 		}
-		if x.state == stQueued {
+		if x.state == Queued {
 			s.offer(x)
 			live++
 		}
@@ -222,12 +254,12 @@ func (s *Sender) offer(x *sendXfer) {
 	if x.offset > 0 {
 		hint = min(x.offset, (x.f.Size-1)/protocol.ChunkSize*protocol.ChunkSize)
 	}
-	x.state, x.since, x.credits = stOffered, time.Now(), 0
+	x.state, x.since, x.credits = Offered, time.Now(), 0
 	err := s.c.Send(protocol.TypeTransferOffer, protocol.TransferOffer{
 		ID: x.id.String(), To: s.to, Name: x.f.Name, Path: x.f.Dir, Size: x.f.Size, Mime: x.f.Mime, Key: x.commit, Offset: hint, Batch: s.batch,
 	})
 	if err != nil {
-		x.state = stPaused
+		x.state = Paused
 	}
 }
 
@@ -236,7 +268,7 @@ func (s *Sender) reoffer() {
 		return
 	}
 	for _, x := range s.xfers {
-		if x.state == stPaused {
+		if x.state == Paused {
 			s.offer(x)
 		}
 	}
@@ -268,18 +300,18 @@ func (s *Sender) Handle(ev Event) {
 		}
 	case protocol.TypeTransferAnswer:
 		var a protocol.TransferAnswer
-		if x := s.parse(ev.Data, &a, &a.ID); x != nil && x.state == stOffered {
+		if x := s.parse(ev.Data, &a, &a.ID); x != nil && x.state == Offered {
 			s.answered(x, a)
 		}
 	case protocol.TypeFlowCredit:
 		var m protocol.FlowCredit
-		if x := s.parse(ev.Data, &m, &m.ID); x != nil && x.state == stActive {
+		if x := s.parse(ev.Data, &m, &m.ID); x != nil && x.state == Active {
 			x.credits += m.N
 			s.pump(x)
 		}
 	case protocol.TypeTransferComplete:
 		var m protocol.TransferComplete
-		if x := s.parse(ev.Data, &m, &m.ID); x != nil && x.state == stActive {
+		if x := s.parse(ev.Data, &m, &m.ID); x != nil && x.state == Active {
 			s.finish(x, nil)
 		}
 	case protocol.TypeTransferFailed:
@@ -305,8 +337,8 @@ func (s *Sender) answered(x *sendXfer, a protocol.TransferAnswer) {
 	if !a.Accept {
 		if s.batch != nil {
 			for _, y := range s.xfers {
-				if y.state == stQueued {
-					y.state, y.err = stFailed, errors.New("declined")
+				if y.state == Queued {
+					y.state, y.err = Failed, errors.New("declined")
 				}
 			}
 		}
@@ -330,7 +362,7 @@ func (s *Sender) answered(x *sendXfer, a protocol.TransferAnswer) {
 		s.cancel(x, "bad resume offset")
 		return
 	}
-	x.offset, x.credits, x.state = a.Offset, protocol.CreditWindow, stActive
+	x.offset, x.credits, x.state = a.Offset, protocol.CreditWindow, Active
 	if s.OnStart != nil {
 		s.OnStart(x.f, x.sas)
 	}
@@ -338,7 +370,7 @@ func (s *Sender) answered(x *sendXfer, a protocol.TransferAnswer) {
 }
 
 func (s *Sender) pump(x *sendXfer) {
-	for x.state == stActive && x.credits > 0 && x.offset < x.f.Size {
+	for x.state == Active && x.credits > 0 && x.offset < x.f.Size {
 		n := min(int64(protocol.ChunkSize), x.f.Size-x.offset)
 		buf := s.frame[protocol.FrameOverhead : protocol.FrameOverhead+n]
 		if _, err := x.file.ReadAt(buf, x.offset); err != nil {
@@ -362,8 +394,8 @@ func (s *Sender) pump(x *sendXfer) {
 }
 
 func (s *Sender) pause(x *sendXfer) {
-	if x.state == stOffered || x.state == stActive {
-		x.state, x.credits, x.since = stPaused, 0, time.Now()
+	if x.state == Offered || x.state == Active {
+		x.state, x.credits, x.since = Paused, 0, time.Now()
 		if s.OnPause != nil {
 			s.OnPause(x.f)
 		}
@@ -371,7 +403,7 @@ func (s *Sender) pause(x *sendXfer) {
 }
 
 func (s *Sender) cancel(x *sendXfer, reason string) {
-	if x.state == stOffered || x.state == stActive {
+	if x.state == Offered || x.state == Active {
 		_ = s.c.Send(protocol.TypeTransferCancel, protocol.TransferCancel{ID: x.id.String(), Reason: reason})
 	}
 	s.finish(x, errors.New(reason))
@@ -382,9 +414,9 @@ func (s *Sender) finish(x *sendXfer, err error) {
 		_ = x.file.Close()
 		x.file = nil
 	}
-	x.state, x.err = stDone, nil
+	x.state, x.err = Done, nil
 	if err != nil {
-		x.state, x.err = stFailed, err
+		x.state, x.err = Failed, err
 	}
 	if s.OnDone != nil {
 		s.OnDone(x.f, err)
@@ -397,7 +429,7 @@ func (s *Sender) Reap(maxWait time.Duration) {
 		return
 	}
 	for _, x := range s.xfers {
-		if x.state == stPaused && time.Since(x.since) > maxWait {
+		if x.state == Paused && time.Since(x.since) > maxWait {
 			s.finish(x, errors.New("they didn't come back"))
 		}
 	}
@@ -423,17 +455,35 @@ func (s *Sender) Finished() bool {
 func (s *Sender) Failed() int {
 	n := 0
 	for _, x := range s.xfers {
-		if x.state == stFailed {
+		if x.state == Failed {
 			n++
 		}
 	}
 	return n
 }
 
+func (s *Sender) Xfers() []Status {
+	peer := protocol.Peer{ID: s.to}
+	if s.c != nil {
+		if p, ok := s.c.Peer(s.to); ok {
+			peer = p
+		}
+	}
+	out := make([]Status, 0, len(s.xfers))
+	for _, x := range s.xfers {
+		done := x.offset
+		if x.state == Done {
+			done = x.f.Size
+		}
+		out = append(out, Status{ID: x.id, Label: x.f.Label(), Peer: peer, Size: x.f.Size, Done: done, SAS: x.sas, State: x.state, Err: x.err})
+	}
+	return out
+}
+
 func (s *Sender) Progress() (sent, total int64) {
 	for _, x := range s.xfers {
 		total += x.f.Size
-		if x.state == stDone {
+		if x.state == Done {
 			sent += x.f.Size
 		} else {
 			sent += x.offset
@@ -464,6 +514,7 @@ type decision struct {
 }
 
 type recvXfer struct {
+	seq    int
 	id     uuid.UUID
 	name   string
 	dir    string
@@ -476,8 +527,9 @@ type recvXfer struct {
 	part   *os.File
 	path   string
 	bytes  int64
-	state  state
+	state  State
 	since  time.Time
+	err    error
 }
 
 type Receiver struct {
@@ -486,6 +538,7 @@ type Receiver struct {
 	pending []*Offer
 	xfers   map[uuid.UUID]*recvXfer
 	batches map[string]decision
+	seq     int
 
 	OnStart    func(name string, from protocol.Peer, sas string)
 	OnPause    func(name string, from protocol.Peer)
@@ -506,16 +559,25 @@ func (r *Receiver) Pending() []*Offer { return slices.Clone(r.pending) }
 func (r *Receiver) Active() int {
 	n := 0
 	for _, x := range r.xfers {
-		if x.state == stActive || x.state == stPaused {
+		if x.state == Active || x.state == Paused {
 			n++
 		}
 	}
 	return n
 }
 
+func (r *Receiver) Xfers() []Status {
+	out := make([]Status, 0, len(r.xfers))
+	for _, x := range r.xfers {
+		out = append(out, Status{ID: x.id, Label: x.label(), Peer: x.from, Size: x.size, Done: x.bytes, SAS: x.sas, State: x.state, Err: x.err})
+	}
+	sort.Slice(out, func(i, j int) bool { return r.xfers[out[i].ID].seq < r.xfers[out[j].ID].seq })
+	return out
+}
+
 func (r *Receiver) Progress() (got, total int64) {
 	for _, x := range r.xfers {
-		if x.state == stActive || x.state == stPaused {
+		if x.state == Active || x.state == Paused {
 			got += x.bytes
 			total += x.size
 		}
@@ -524,10 +586,10 @@ func (r *Receiver) Progress() (got, total int64) {
 }
 
 func (r *Receiver) pause(x *recvXfer) {
-	if x.state != stActive {
+	if x.state != Active {
 		return
 	}
-	x.state, x.since = stPaused, time.Now()
+	x.state, x.since = Paused, time.Now()
 	if r.OnPause != nil {
 		r.OnPause(x.label(), x.from)
 	}
@@ -570,7 +632,7 @@ func (r *Receiver) Handle(ev Event) {
 		}
 		id, _ := uuid.Parse(m.ID)
 		x := r.xfers[id]
-		if x == nil || x.state != stActive || x.commit == "" {
+		if x == nil || x.state != Active || x.commit == "" {
 			return
 		}
 		c, err := commitment(m.Key)
@@ -639,9 +701,9 @@ func (r *Receiver) offered(data json.RawMessage) {
 	name, dir := safeName(m.Name), safePath(m.Path)
 	if x := r.xfers[id]; x != nil {
 		switch {
-		case (x.state == stActive || x.state == stPaused) && x.from.ID == m.From.ID && x.name == name && x.dir == dir && x.size == m.Size:
+		case (x.state == Active || x.state == Paused) && x.from.ID == m.From.ID && x.name == name && x.dir == dir && x.size == m.Size:
 			r.resume(x, m)
-		case x.state == stDone:
+		case x.state == Done:
 
 			_ = r.c.Send(protocol.TypeTransferAnswer, protocol.TransferAnswer{ID: m.ID})
 		}
@@ -683,7 +745,7 @@ func (r *Receiver) resume(x *recvXfer, m protocol.TransferOffer) {
 		}
 		pub = x.kp.pub
 	}
-	x.state = stActive
+	x.state = Active
 	err := r.c.Send(protocol.TypeTransferAnswer, protocol.TransferAnswer{ID: m.ID, Accept: true, Key: pub, Offset: off})
 	if err != nil {
 		r.pause(x)
@@ -708,7 +770,8 @@ func (r *Receiver) Answer(o *Offer, accept bool) error {
 	if !accept {
 		return r.c.Send(protocol.TypeTransferAnswer, protocol.TransferAnswer{ID: o.ID.String()})
 	}
-	x := &recvXfer{id: o.ID, name: o.Name, dir: o.Dir, size: o.Size, from: o.From, commit: o.commit, state: stActive}
+	x := &recvXfer{seq: r.seq, id: o.ID, name: o.Name, dir: o.Dir, size: o.Size, from: o.From, commit: o.commit, state: Active}
+	r.seq++
 	x.path = filepath.Join(r.dir, ".beam-"+o.ID.String()+".part")
 	f, err := os.OpenFile(x.path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {
@@ -742,7 +805,7 @@ func (r *Receiver) chunk(frame []byte) {
 		return
 	}
 	x := r.xfers[id]
-	if x == nil || x.state != stActive {
+	if x == nil || x.state != Active {
 		return
 	}
 	if x.commit != "" && x.key == nil {
@@ -792,20 +855,20 @@ func (r *Receiver) finish(x *recvXfer) {
 	}
 	if err != nil {
 		_ = os.Remove(x.path)
-		x.state = stFailed
+		x.state, x.err = Failed, fmt.Errorf("couldn't save the file: %w", err)
 		if r.OnDone != nil {
-			r.OnDone(x.label(), x.from, "", fmt.Errorf("couldn't save the file: %w", err))
+			r.OnDone(x.label(), x.from, "", x.err)
 		}
 		return
 	}
-	x.state = stDone
+	x.state = Done
 	if r.OnDone != nil {
 		r.OnDone(x.label(), x.from, final, nil)
 	}
 }
 
 func (r *Receiver) fail(x *recvXfer, reason string) {
-	if x.state == stActive {
+	if x.state == Active {
 		_ = r.c.Send(protocol.TypeTransferCancel, protocol.TransferCancel{ID: x.id.String(), Reason: reason})
 	}
 	r.abandon(x, errors.New(reason))
@@ -817,7 +880,7 @@ func (r *Receiver) abandon(x *recvXfer, err error) {
 		x.part = nil
 	}
 	_ = os.Remove(x.path)
-	x.state = stFailed
+	x.state, x.err = Failed, err
 	if r.OnDone != nil {
 		r.OnDone(x.label(), x.from, "", err)
 	}
@@ -828,7 +891,7 @@ func (r *Receiver) Reap(maxWait time.Duration) {
 		return
 	}
 	for _, x := range r.xfers {
-		if x.state == stPaused && time.Since(x.since) > maxWait {
+		if x.state == Paused && time.Since(x.since) > maxWait {
 			r.abandon(x, errors.New("the sender didn't come back"))
 		}
 	}
@@ -840,7 +903,7 @@ func (r *Receiver) Cancel() {
 	}
 	r.pending = nil
 	for _, x := range r.xfers {
-		if x.state == stActive || x.state == stPaused {
+		if x.state == Active || x.state == Paused {
 			r.fail(x, "canceled")
 		}
 	}

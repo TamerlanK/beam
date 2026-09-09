@@ -30,6 +30,8 @@ func main() {
 		os.Exit(serve(args))
 	case "ls", "send", "recv":
 		os.Exit(runCLI(cmd, args))
+	case "tui":
+		os.Exit(runTUI(args))
 	case "help":
 		fmt.Print(usage)
 	default:

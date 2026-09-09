@@ -33,7 +33,7 @@ go run ./cmd/beam        # then open http://localhost:8080 on two devices
 - **History** — the last 50 transfers stay in the panel with a "Save again" button for a couple of minutes after a receive; your name and avatar are editable and persist per browser
 - **Light and dark, keyboard and screen-reader friendly** — theme follows the system and can be toggled; dialogs are native `<dialog>`s with focus management and live regions
 - **Ephemeral by design** — no database, no server-side storage, nothing written to disk; a drop is the one thing the server holds, as ciphertext, in RAM, for minutes
-- **A terminal client, too** — `beam send` and `beam recv` speak the same protocol with the same encryption from a shell, so a headless server, a CI job or an SSH session drops files to a phone's browser and back, with matching verification codes; see [From a terminal](#from-a-terminal)
+- **A terminal client, too** — `beam send` and `beam recv` speak the same protocol with the same encryption from a shell, so a headless server, a CI job or an SSH session drops files to a phone's browser and back, with matching verification codes; `beam tui` is the interactive version, a full-screen client that lists the room live, sends and receives at once and answers offers inline; see [From a terminal](#from-a-terminal)
 - **One binary** — the vanilla HTML/CSS/JS frontend is embedded with `embed.FS`; `./beam` is the whole deployment, server and terminal client
 
 ## Using beam
@@ -69,16 +69,36 @@ beam send -join XK7P photo.jpg               # another network: use the code the
 beam recv -share                             # … or print a code for them to join
 ```
 
+`beam tui` is the interactive version: it stays connected, lists the room as devices come and go, sends and receives at the same time, and asks about each offer at the bottom of the screen.
+
+```sh
+beam tui                          # receives into the current directory
+beam tui -dir ~/Downloads -share  # … elsewhere, and print a room code on startup
+```
+
+| Key | Does |
+| --- | --- |
+| `↑` `↓` | Pick a device |
+| `s` | Send a file, or a folder with its tree; Tab completes the path and `~` works |
+| `m` | Send a note |
+| `y` / `n` | Accept or decline the offer shown at the bottom; one answer covers a whole folder |
+| `c` / `j` | Create a room code / join one |
+| `x` | Withdraw everything in flight |
+| `PgUp` `PgDn` `Home` `End` | Scroll the log; `End` follows new lines again |
+| `q` | Quit, withdrawing open transfers |
+
+Every transfer gets its own row with a progress bar, rate, ETA and verification code; finished rows stay a few seconds. The screen is only a view: a separate goroutine drains the socket exactly as `beam recv` does, so a slow terminal never stalls a transfer ([docs/decisions.md](docs/decisions.md)).
+
 Set `BEAM_SERVER` (or `-server`) to the server's URL; the default is `http://localhost:8080`. Same-network discovery works as in the browser because the client connects from the same address. A device name is chosen on first run and saved under the user config directory; `-name` overrides it for one run.
 
 | Flag | Commands | What it does |
 | --- | --- | --- |
 | `-server` | all | Server URL (`BEAM_SERVER` sets the default) |
 | `-join CODE` | all | Enter the room behind a 4-character code |
-| `-share` | send, recv | Print a code other devices can join |
+| `-share` | send, recv, tui | Print a code other devices can join |
 | `-to` | send | Device to send to: a name or id, or a prefix of one; the only other device if omitted |
 | `-text` | send | Send a note instead of files |
-| `-dir` | recv | Where to save (default `.`) |
+| `-dir` | recv, tui | Where to save (default `.`) |
 | `-yes` | recv | Accept every offer without asking (required when stdin is not a terminal) |
 | `-once` | recv | Exit after the first transfer finishes |
 | `-wait` | all | How long to wait for a device to appear or come back (default `5m`, `0` = forever) |
@@ -208,7 +228,7 @@ Formatting is enforced in CI, so `make fmt` is the only style rule. Line endings
 Layout:
 
 ```
-cmd/beam        entrypoint: server flags, and the ls/send/recv terminal commands
+cmd/beam        entrypoint: server flags, the ls/send/recv terminal commands and the tui
 cmd/loadtest    load harness
 internal/client the Go client: reconnecting socket, browser-compatible crypto, sender and receiver
 internal/hub    the hub goroutine: rooms, clients, transfers, drops, relay

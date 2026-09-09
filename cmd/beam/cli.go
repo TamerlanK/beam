@@ -23,6 +23,7 @@ import (
 const usage = `beam drops files between any two devices.
 
   beam [serve] [flags]         run the server (default)
+  beam tui                     full-screen client: pick a device, send, receive
   beam ls                      list the devices in your room
   beam send [flags] PATH...    send files or whole folders to a device
   beam send -text "..."        send a note to a device
@@ -667,15 +668,28 @@ type sample struct {
 }
 
 func (m *meter) show(done, total int64, label string) {
-	now := time.Now()
-	if now.Sub(m.last) < 100*time.Millisecond {
+	if time.Since(m.last) < 100*time.Millisecond {
 		return
 	}
-	m.last = now
+	m.last = time.Now()
+	status(m.line(done, total, label))
+}
+
+func (m *meter) line(done, total int64, label string) string {
 	if total == 0 {
-		status("")
-		return
+		m.samples = nil
+		return ""
 	}
+	rate := m.rate(done)
+	line := fmt.Sprintf("%3d%%  %s / %s  %s/s  eta %s  %s", done*100/total, client.HumanBytes(done), client.HumanBytes(total), client.HumanBytes(int64(rate)), eta(rate, total-done), label)
+	if utf8.RuneCountInString(line) > 100 {
+		line = string([]rune(line)[:99]) + "…"
+	}
+	return line
+}
+
+func (m *meter) rate(done int64) float64 {
+	now := time.Now()
 	if n := len(m.samples); n > 0 && m.samples[n-1].n > done {
 		m.samples = nil
 	}
@@ -683,20 +697,20 @@ func (m *meter) show(done, total int64, label string) {
 	if len(m.samples) > 30 {
 		m.samples = m.samples[1:]
 	}
-	var rate float64
-	if n := len(m.samples); n > 1 {
-		first, last := m.samples[0], m.samples[n-1]
-		if dt := last.at.Sub(first.at).Seconds(); dt > 0 {
-			rate = float64(last.n-first.n) / dt
-		}
+	n := len(m.samples)
+	if n < 2 {
+		return 0
 	}
-	eta := "…"
-	if rate > 0 {
-		eta = (time.Duration(float64(total-done)/rate*float64(time.Second)) + time.Second/2).Round(time.Second).String()
+	first, last := m.samples[0], m.samples[n-1]
+	if dt := last.at.Sub(first.at).Seconds(); dt > 0 {
+		return float64(last.n-first.n) / dt
 	}
-	line := fmt.Sprintf("%3d%%  %s / %s  %s/s  eta %s  %s", done*100/total, client.HumanBytes(done), client.HumanBytes(total), client.HumanBytes(int64(rate)), eta, label)
-	if utf8.RuneCountInString(line) > 100 {
-		line = string([]rune(line)[:99]) + "…"
+	return 0
+}
+
+func eta(rate float64, remaining int64) string {
+	if rate <= 0 {
+		return "…"
 	}
-	status(line)
+	return (time.Duration(float64(remaining)/rate*float64(time.Second)) + time.Second/2).Round(time.Second).String()
 }

@@ -4,6 +4,43 @@ ADR-style log. Each entry: context → decision → consequences.
 
 ---
 
+## 2026-09-09 — A TUI that stays out of the data path
+
+**Context.** `beam send` and `beam recv` are one-shot: pick a peer up
+front, do one thing, exit. An interactive session — watch the room,
+choose a device, send and receive at once, answer offers as they
+arrive — needs a screen. The first cut routed every event through the
+Bubble Tea loop, 64 KB frames included, and Bubble Tea re-renders after
+each message. Bursting a 40-file folder at it lost 18 files: 24
+transfers with 16 chunks each in flight overflow the hub's 64-slot
+per-client queue the moment the consumer hesitates, and the relay fails
+them with `receiver-backpressure`. A sender never shows this, because
+credits pace it to the far side.
+
+**Decision.** `beam tui` is two parts. An engine goroutine owns the
+client, the receiver, the senders and the log, and runs the loop
+`beam recv` runs, under one mutex released between events. Bubble Tea
+only takes snapshots and issues commands under that lock, and is woken
+through a one-slot channel that drops a wake when one is already queued,
+so the engine never waits on the terminal and a burst costs one redraw.
+`internal/client` exports a per-transfer `Status` for the rows, and the
+rate meter is shared with the one-shot commands. Tab completion is
+`filepath.Glob` with metacharacters escaped; the log keeps a thousand
+lines and stays anchored while scrolled; names and notes are stripped of
+escape sequences before they reach the screen.
+
+**Consequences.** The same burst arrives 40/40 with no server warnings,
+and a test drives it against a real hub while a deliberately slow UI
+polls the engine. Three dependencies: `bubbletea`, `lipgloss`, and
+`x/ansi` for width-aware truncation. Not done: drops, resume across a
+restart, profile editing. Found on the way and left alone: with
+`-relay-bps` the hub refills a whole second of budget at once and
+resumes every starved transfer in one pass, which can overflow a
+sender's queue with credits — a plain `beam recv` lost 2 of 40 files
+under it. A finer refill would fix it.
+
+---
+
 ## 2026-09-08 — A terminal client in the same binary
 
 **Context.** Every beam device was a browser. The machine that most often
