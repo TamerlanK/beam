@@ -97,10 +97,11 @@ type engine struct {
 	r   *client.Receiver
 	snd []*client.Sender
 
-	self   protocol.Peer
-	peers  []protocol.Peer
-	status string
-	code   string
+	self    protocol.Peer
+	peers   []protocol.Peer
+	status  string
+	code    string
+	codeTTL string
 
 	log     []string
 	dropped int
@@ -231,8 +232,8 @@ func (e *engine) event(ev client.Event) {
 	case protocol.TypeRoomCreated:
 		var m protocol.RoomCreated
 		if json.Unmarshal(ev.Data, &m) == nil {
-			e.code = m.Code
-			e.say("Room code %s — enter it on another device", m.Code)
+			e.code, e.codeTTL = m.Code, codeWindow(m.ExpiresIn)
+			e.say("Room code %s — enter it on another device%s", m.Code, idleFor(m.ExpiresIn))
 		}
 	case protocol.TypeError:
 		if err := serverError(ev); err != nil {
@@ -427,6 +428,7 @@ type snapshot struct {
 	peers   []protocol.Peer
 	status  string
 	code    string
+	codeTTL string
 	log     []string
 	dropped int
 	rows    []row
@@ -439,7 +441,7 @@ type snapshot struct {
 func (e *engine) snapshot(limit int) snapshot {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	s := snapshot{self: e.self, peers: e.peers, status: e.status, code: e.code,
+	s := snapshot{self: e.self, peers: e.peers, status: e.status, code: e.code, codeTTL: e.codeTTL,
 		log: e.log, dropped: e.dropped, queued: e.queued, pending: e.r.Pending(), done: e.done}
 	s.rows = make([]row, 0, min(len(e.order), limit))
 	for _, live := range []bool{true, false} {
@@ -792,6 +794,9 @@ func (t *tui) View() string {
 	title := fmt.Sprintf("beam  %s %s  ·  %s  ·  %s", s.self.Emoji, clean(s.self.Name), t.e.o.server, s.status)
 	if s.code != "" {
 		title += "  ·  room " + s.code
+		if s.codeTTL != "" {
+			title += " (" + s.codeTTL + " idle)"
+		}
 	}
 	lines = append(lines, head.Render(t.fit(title)))
 

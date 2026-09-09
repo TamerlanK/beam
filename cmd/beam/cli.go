@@ -156,7 +156,7 @@ func (s *session) note(ev client.Event) {
 	case protocol.TypeRoomCreated:
 		var m protocol.RoomCreated
 		if json.Unmarshal(ev.Data, &m) == nil {
-			say("Room code %s: enter it in beam on another device, or run beam with -join %s", m.Code, m.Code)
+			say("Room code %s: enter it in beam on another device, or run beam with -join %s%s", m.Code, m.Code, idleFor(m.ExpiresIn))
 		}
 	case protocol.TypePeerLeft:
 		var m protocol.PeerLeft
@@ -169,6 +169,23 @@ func (s *session) note(ev client.Event) {
 			say("%s is back", p.Name)
 		}
 	}
+}
+
+func codeWindow(sec int) string {
+	switch {
+	case sec >= 60:
+		return fmt.Sprintf("%dm", (sec+30)/60)
+	case sec > 0:
+		return fmt.Sprintf("%ds", sec)
+	}
+	return ""
+}
+
+func idleFor(sec int) string {
+	if w := codeWindow(sec); w != "" {
+		return "; it expires after " + w + " without a join"
+	}
+	return ""
 }
 
 func serverError(ev client.Event) error {

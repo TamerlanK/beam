@@ -316,6 +316,35 @@ func TestViewFitsTheWindow(t *testing.T) {
 	}
 }
 
+func TestCodeWindow(t *testing.T) {
+	for sec, want := range map[int]string{600: "10m", 601: "10m", 420: "7m", 90: "2m", 89: "1m", 60: "1m", 59: "59s", 1: "1s", 0: "", -5: ""} {
+		if got := codeWindow(sec); got != want {
+			t.Errorf("codeWindow(%d) = %q, want %q", sec, got, want)
+		}
+	}
+	if got := idleFor(600); got != "; it expires after 10m without a join" {
+		t.Errorf("idleFor(600) = %q", got)
+	}
+	if got := idleFor(0); got != "" {
+		t.Errorf("idleFor(0) = %q, want empty", got)
+	}
+}
+
+func TestTitleShowsTheRoomCodeWindow(t *testing.T) {
+	m := newTestTUI()
+	m.w = 120
+	m.e.code = "AB12"
+	m.sync()
+	if title := strings.Split(m.View(), "\n")[0]; !strings.Contains(title, "room AB12") || strings.Contains(title, "idle") {
+		t.Fatalf("without a window the title should name only the code: %q", title)
+	}
+	m.e.codeTTL = "10m"
+	m.sync()
+	if title := strings.Split(m.View(), "\n")[0]; !strings.Contains(title, "room AB12 (10m idle)") {
+		t.Fatalf("title: %q", title)
+	}
+}
+
 func TestBar(t *testing.T) {
 	if got := bar(4, 0.5); got != "██░░" {
 		t.Errorf("bar(4, .5) = %q", got)
